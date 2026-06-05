@@ -3188,8 +3188,13 @@ TN_GOVERNORATE_CENTROIDS: dict[str, tuple[float, float]] = {
 }
 
 
-def plotly_tunisia_map(region_counts: pd.Series, df: pd.DataFrame | None = None) -> Any:
-    """Bubble map of Tunisia: one bubble per governorate, sized by startup count."""
+def plotly_tunisia_map(
+    region_counts: pd.Series,
+    df: pd.DataFrame | None = None,
+    dimension: str = "density",
+) -> Any:
+    """Bubble map of Tunisia. Dimension controls the bubble color metric:
+    'density' (number of startups), 'funded_rate' (% funded), 'recent' (avg founding year)."""
     import plotly.graph_objects as go
 
     rows: list[dict[str, Any]] = []
@@ -3200,17 +3205,27 @@ def plotly_tunisia_map(region_counts: pd.Series, df: pd.DataFrame | None = None)
         if not coords:
             continue
         funded = 0
+        funded_rate = 0.0
+        avg_year = None
         top_sector = ""
         if df is not None and "Region" in df.columns:
             sub = df[df["Region"].astype(str) == region.strip()]
             if "funded" in sub.columns:
                 funded = int(sub["funded"].sum())
+                funded_rate = funded / max(1, len(sub))
+            if "founding_year" in sub.columns:
+                years = pd.to_numeric(sub["founding_year"], errors="coerce").dropna()
+                if not years.empty:
+                    avg_year = float(years.mean())
             if "sector" in sub.columns and not sub["sector"].dropna().empty:
                 top_sector = str(sub["sector"].value_counts().head(1).index[0])
         rows.append({
             "region": region.strip(),
             "lat": coords[0], "lon": coords[1],
-            "count": int(count), "funded": funded, "top_sector": top_sector,
+            "count": int(count), "funded": funded,
+            "funded_rate": funded_rate * 100,
+            "avg_year": avg_year if avg_year is not None else 0,
+            "top_sector": top_sector,
         })
     if not rows:
         return None
@@ -3218,24 +3233,40 @@ def plotly_tunisia_map(region_counts: pd.Series, df: pd.DataFrame | None = None)
     max_c = max(1, plot_df["count"].max())
     plot_df["size"] = 12 + (plot_df["count"] / max_c) * 42
 
+    if dimension == "funded_rate":
+        color_vals = plot_df["funded_rate"]
+        cbar_label = "% finances"
+    elif dimension == "recent":
+        color_vals = plot_df["avg_year"]
+        cbar_label = "Annee moyenne"
+    else:
+        color_vals = plot_df["count"]
+        cbar_label = "Startups"
+
     fig = go.Figure(go.Scattergeo(
         lon=plot_df["lon"], lat=plot_df["lat"],
         text=plot_df["region"],
-        customdata=plot_df[["count", "funded", "top_sector"]].values,
+        customdata=plot_df[["count", "funded", "funded_rate", "avg_year", "top_sector"]].values,
         mode="markers+text",
         textposition="top center",
         textfont=dict(size=10, color=NAVY, family="Inter"),
         marker=dict(
-            size=plot_df["size"], color=plot_df["count"],
+            size=plot_df["size"], color=color_vals,
             colorscale=[[0.0, "#7C8BC9"], [0.5, NAVY], [1.0, RED]],
             line=dict(color="white", width=1.5),
-            opacity=0.92, showscale=False,
+            opacity=0.92, showscale=True,
+            colorbar=dict(
+                title=dict(text=cbar_label, font=dict(size=10, color=MUTED)),
+                thickness=10, len=0.5, x=1.02,
+                tickfont=dict(size=9, color=MUTED),
+            ),
         ),
         hovertemplate=(
             "<b>%{text}</b><br>"
             "Startups : %{customdata[0]}<br>"
-            "Finances : %{customdata[1]}<br>"
-            "Top secteur : %{customdata[2]}<extra></extra>"
+            "Finances : %{customdata[1]} (%{customdata[2]:.0f}%)<br>"
+            "Annee moyenne : %{customdata[3]:.0f}<br>"
+            "Top secteur : %{customdata[4]}<extra></extra>"
         ),
     ))
     fig.update_geos(
@@ -4072,6 +4103,31 @@ def _inject_css() -> None:
             color: {RED} !important;
         }}
         div[data-testid="stMetricValue"] {{ color: {NAVY}; }}
+        /* 3D depth + tilt on hover (cards) */
+        .kpi, .alaune, .prog-card, .news-card, .spot, .pf {{
+            transform-style: preserve-3d;
+            will-change: transform;
+        }}
+        .kpi:hover {{
+            transform: perspective(900px) translateY(-4px) rotateX(2.5deg) rotateY(-1.5deg);
+        }}
+        .alaune:hover {{
+            transform: perspective(1000px) translateY(-4px) rotateX(2deg) rotateY(-2deg);
+        }}
+        .prog-card:hover {{
+            transform: perspective(1200px) translateY(-5px) rotateX(2deg) rotateY(-1.5deg);
+        }}
+        .news-card:hover {{
+            transform: perspective(1200px) translateY(-4px) rotateX(1.8deg) rotateY(-1.2deg);
+        }}
+        .spot:hover {{
+            transform: perspective(900px) translateY(-4px) rotateX(2.2deg) rotateY(2deg) scale(1.005);
+        }}
+        .pf:hover {{
+            transform: perspective(800px) translateY(-3px) rotateX(2deg);
+        }}
+        /* Subtle ambient glow under hovered hero pieces */
+        .cdc-hero:hover::before {{ box-shadow: 0 0 24px 6px rgba(209,10,17,0.18); }}
         /* Program cards */
         .prog-grid {{
             display:grid; grid-template-columns: repeat(auto-fit, minmax(310px,1fr));
@@ -4285,11 +4341,11 @@ def _header(lang: str) -> None:
         for (text, who, initials), (c1, c2) in zip(quotes, avatar_palette)
     )
     tagline = (
-        "From funding to breakout, welcome to Tunisia's next "
-        "<span class='accent'>game-changers'</span> control room."
+        "From funding to breakout - submit deliverables, prove traction, "
+        "<span class='accent'>unlock tranches</span>. Done."
         if lang == "EN"
-        else "Du financement a la rupture, bienvenue dans la salle de "
-             "controle des <span class='accent'>game-changers</span> tunisiens."
+        else "Du financement a la rupture - livrez, prouvez la traction, "
+             "<span class='accent'>debloquez les tranches</span>. Voila."
     )
 
     cdc_letters = "".join(f"<span class='pad' style='animation-delay:{i*0.18}s'>{ch}</span>"
@@ -4519,9 +4575,16 @@ def run_app() -> None:
                 f"<div class='kpi-sub'>{v['secondary']}</div>"
                 f"</div>"
             )
+        is_fr_h = (lang == "FR")
+        pill_label = "Mission Control" if not is_fr_h else "Salle de controle"
+        title_label = (
+            "Tunisia's ecosystem pulse - the signals that matter today"
+            if not is_fr_h
+            else "Pouls de l'ecosysteme tunisien - les signaux qui comptent aujourd'hui"
+        )
         st.markdown(
-            "<div class='section-h'><span class='pill'>A la une</span>"
-            "<h3>Pouls de l'ecosysteme tunisien</h3></div>"
+            f"<div class='section-h'><span class='pill'>{pill_label}</span>"
+            f"<h3>{title_label}</h3></div>"
             f"<div class='kpi-strip'>{''.join(kpi_html_parts)}</div>",
             unsafe_allow_html=True,
         )
@@ -4570,9 +4633,16 @@ def run_app() -> None:
                     f"  </div>"
                     f"</div>"
                 )
+            is_fr_sp = (lang == "FR")
+            spot_pill = "En action" if is_fr_sp else "Founders shipping"
+            spot_title = (
+                "Les beneficiaires qui font bouger le portefeuille CDC"
+                if is_fr_sp
+                else "The funded teams moving the CDC portfolio right now"
+            )
             st.markdown(
-                "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#7C3AED,#4C1D95)'>Beneficiaires</span>"
-                "<h3>Coups de projecteur sur les startups financees</h3></div>"
+                f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,{NAVY},{RED})'>{spot_pill}</span>"
+                f"<h3>{spot_title}</h3></div>"
                 f"<div class='spot-grid'>{''.join(cards_html)}</div>",
                 unsafe_allow_html=True,
             )
@@ -4647,11 +4717,29 @@ def run_app() -> None:
             f"<h3>{map_title}</h3></div>",
             unsafe_allow_html=True,
         )
+        dim_labels_fr = {
+            "density": "Densite (nombre de startups)",
+            "funded_rate": "Taux de financement (%)",
+            "recent": "Cohorte moyenne (annee)",
+        }
+        dim_labels_en = {
+            "density": "Density (number of startups)",
+            "funded_rate": "Funded rate (%)",
+            "recent": "Average cohort (year)",
+        }
+        labels_map = dim_labels_fr if is_fr_pf else dim_labels_en
+        dim_choice = st.radio(
+            "Dimension" if is_fr_pf else "Dimension",
+            options=list(labels_map.keys()),
+            format_func=lambda k: labels_map[k],
+            horizontal=True,
+            key="map_dimension",
+        )
         if "Region" in filtered.columns:
             region_counts = filtered["Region"].dropna().astype(str).value_counts()
         else:
             region_counts = pd.Series(dtype=int)
-        tn_map = plotly_tunisia_map(region_counts, filtered)
+        tn_map = plotly_tunisia_map(region_counts, filtered, dimension=dim_choice)
         if tn_map is not None:
             st.plotly_chart(tn_map, use_container_width=True,
                             config={"displayModeBar": False, "scrollZoom": False})
@@ -4782,7 +4870,10 @@ def run_app() -> None:
             team = v4.slider("Team strength", 0.0, 1.0, 0.70, 0.05)
             market = v5.slider("Market opportunity", 0.0, 1.0, 0.65, 0.05)
             product = v6.slider("Product maturity", 0.0, 1.0, 0.60, 0.05)
-            submitted = st.form_submit_button("Run assessment", use_container_width=True)
+            submitted = st.form_submit_button(
+                "Score the dossier" if lang == "EN" else "Lancer le scoring",
+                use_container_width=True,
+            )
 
         if submitted:
             assess_inputs = {
