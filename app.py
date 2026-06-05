@@ -110,7 +110,8 @@ TX = {
     "tab_ecosystem": {"EN": "Ecosystem", "FR": "Ecosysteme"},
     "tab_portfolio": {"EN": "Portfolio", "FR": "Portefeuille"},
     "tab_assessment": {"EN": "Assessment", "FR": "Evaluation"},
-    "tab_valuation": {"EN": "Valuation", "FR": "Valorisation"},
+    "tab_committee": {"EN": "Committee Scoring", "FR": "Grille de scoring"},
+    "tab_valuation": {"EN": "Valuation (FMVA)", "FR": "Valorisation (FMVA)"},
     "tab_learning": {"EN": "Data & Learning", "FR": "Donnees & apprentissage"},
     "tab_reports": {"EN": "Reports", "FR": "Rapports"},
     "logout": {"EN": "Log out", "FR": "Deconnexion"},
@@ -481,6 +482,1036 @@ def lookup_startup(df: pd.DataFrame, query: str) -> dict[str, Any]:
         "title": "Information - in database, not previously funded.",
         "details": details,
     }
+
+
+# ---------------------------------------------------------------------------
+# VAIR Greentech committee scoring grid (7 axes, 0-5 per criterion)
+# ---------------------------------------------------------------------------
+SCORING_GRID: list[dict[str, Any]] = [
+    {
+        "axis": "Innovation et Proposition de valeur",
+        "guidance": (
+            "Mesure la nouveauté et l'originalité de la solution ainsi que sa pertinence "
+            "pour l'utilisateur final. Un score élevé correspond à une solution "
+            "différenciante, répondant à un problème réel, avec un potentiel d'adoption."
+        ),
+        "criteria": [
+            {
+                "name": "Originalité de la solution",
+                "angle": "Dans quelle mesure la solution se différencie-t-elle des pratiques/technologies existantes ?",
+                "fields": "En quoi votre solution est-elle innovante ? / Pitch Deck / Vidéo YouTube",
+                "anchors": [
+                    "Absence totale d'innovation",
+                    "Copie d'existant, aucune différenciation",
+                    "Innovation mineure, amélioration marginale",
+                    "Innovation modérée, différenciateur clair",
+                    "Innovation forte, rupture partielle",
+                    "Innovation de rupture, unique sur le marché",
+                ],
+            },
+            {
+                "name": "Pertinence de la valeur ajoutée pour l'utilisateur",
+                "angle": "La solution répond-elle à un vrai besoin et crée-t-elle une utilité claire pour le client final ?",
+                "fields": "Décrivez le problème que vous adressez / Décrivez votre projet / Pitch Deck",
+                "anchors": [
+                    "Aucun besoin identifié, hors sujet",
+                    "Proposition confuse, besoin non démontré",
+                    "Valeur ajoutée faible ou partiellement pertinente",
+                    "Répond à un besoin identifié mais sans validation terrain",
+                    "Retours initiaux positifs / intérêt exprimé",
+                    "Proposition démontrée comme indispensable (painkiller)",
+                ],
+            },
+        ],
+    },
+    {
+        "axis": "Adéquation au marché ciblé",
+        "guidance": (
+            "Évalue la clarté et la crédibilité de la définition du marché, les preuves "
+            "d'intérêt ou de traction, ainsi que la stratégie d'accès au marché."
+        ),
+        "criteria": [
+            {
+                "name": "Clarté et pertinence de la définition du marché",
+                "angle": "Le projet a-t-il identifié un marché réel et pertinent avec des données crédibles ?",
+                "fields": "Quelle est la taille de votre marché cible ? / Pays ciblés",
+                "anchors": [
+                    "Aucun marché identifié",
+                    "Marché très flou, hypothèses non étayées",
+                    "Marché identifié mais peu documenté",
+                    "Marché défini avec segments clairs, premières estimations",
+                    "Marché bien documenté avec données fiables",
+                    "Marché clair, documenté, solide, comparatif sectoriel",
+                ],
+            },
+            {
+                "name": "Validation et accessibilité du marché",
+                "angle": "La solution a-t-elle des preuves concrètes d'intérêt ou d'accès au marché ?",
+                "fields": "Preuves de traction / Lettres de références ou contrats / LOI",
+                "anchors": [
+                    "Aucun signe de demande",
+                    "Hypothèse sans preuve",
+                    "Premiers signaux d'intérêt très limités",
+                    "Premiers retours clients ou LOI",
+                    "Validation par pilotes, partenaires, premiers contrats",
+                    "Forte traction, marché validé avec adoption tangible",
+                ],
+            },
+            {
+                "name": "Crédibilité de la stratégie d'accès au marché",
+                "angle": "La stratégie pour pénétrer le marché est-elle réaliste et cohérente ?",
+                "fields": "Part de marché cible / Stratégie de croissance 3 ans avec KPIs",
+                "anchors": [
+                    "Aucune stratégie décrite",
+                    "Stratégie vague, irréaliste",
+                    "Stratégie partielle, lacunes importantes",
+                    "Stratégie structurée, premiers KPIs crédibles",
+                    "Stratégie claire, chiffrée, cohérente",
+                    "Stratégie solide, démontrée comme réaliste",
+                ],
+            },
+            {
+                "name": "Partenaires stratégiques (optionnel)",
+                "angle": "Le projet a-t-il embarqué des partenaires clés qui renforcent son accès marché ?",
+                "fields": "Partenaires stratégiques / Lettres d'intention / LOI",
+                "anchors": [
+                    "Aucun partenaire",
+                    "Partenaires annoncés mais non crédibles",
+                    "Partenaires mineurs, rôle peu clair",
+                    "Partenaires identifiés avec premiers engagements",
+                    "Partenaires solides et actifs",
+                    "Partenariats stratégiques structurés et confirmés",
+                ],
+            },
+        ],
+    },
+    {
+        "axis": "Qualité et complémentarité de l'équipe",
+        "guidance": (
+            "L'équipe est au cœur de la réussite. Mesure les compétences techniques et "
+            "business, la capacité à exécuter, ainsi que l'historique entrepreneurial."
+        ),
+        "criteria": [
+            {
+                "name": "Compétences et expérience",
+                "angle": "Les fondateurs possèdent-ils les compétences techniques et/ou business nécessaires ?",
+                "fields": "Bio courte / Background académique / Années d'expérience",
+                "anchors": [
+                    "Aucune compétence pertinente",
+                    "Compétences très limitées",
+                    "Compétences présentes mais lacunes critiques",
+                    "Compétences clés présentes, premières expériences sectorielles",
+                    "Forte expertise tech ou business, expérience probante",
+                    "Expertise solide tech et business, expérience confirmée dans le secteur",
+                ],
+            },
+            {
+                "name": "Capacité d'exécution et organisation",
+                "angle": "Les fondateurs ont-ils une organisation claire et la capacité à exécuter le projet ?",
+                "fields": "Pitch Deck / Moyens techniques et humains / Plan de développement",
+                "anchors": [
+                    "Aucun signe de capacité",
+                    "Organisation très faible",
+                    "Organisation embryonnaire",
+                    "Organisation fonctionnelle, exécution crédible",
+                    "Exécution solide, plan clair, responsabilités assumées",
+                    "Exécution excellente, gouvernance lisible, livrables tenus",
+                ],
+            },
+            {
+                "name": "Historique entrepreneurial & PI",
+                "angle": "L'historique (projets, brevets, accompagnements, prix) renforce-t-il la crédibilité ?",
+                "fields": "Programmes d'accompagnement / Brevets / Références / LOI",
+                "anchors": [
+                    "Aucun historique",
+                    "Historique très faible, non pertinent",
+                    "Historique limité (petits projets/initiatives)",
+                    "Projets antérieurs pertinents ou un brevet/prix",
+                    "Plusieurs projets pertinents et/ou brevets/prix significatifs",
+                    "Track record fort (lancements, traction, PI stratégique, prix reconnus)",
+                ],
+            },
+        ],
+    },
+    {
+        "axis": "Évaluation du PoC",
+        "guidance": (
+            "Évalue la crédibilité technique du projet et la capacité à réaliser un PoC : "
+            "clarté de la description, préparation TRL, ressources, vision d'industrialisation."
+        ),
+        "criteria": [
+            {
+                "name": "Clarté de la description technique",
+                "angle": "Le projet présente-t-il une description claire, compréhensible et crédible ?",
+                "fields": "Description du projet / Pitch Deck / Vidéo",
+                "anchors": [
+                    "Aucune description",
+                    "Description floue ou incohérente",
+                    "Description faible",
+                    "Description claire, premiers éléments",
+                    "Description solide et cohérente",
+                    "Description très claire, illustrée",
+                ],
+            },
+            {
+                "name": "Préparation technique pour le PoC",
+                "angle": "Le projet montre-t-il une préparation crédible pour progresser (TRL 1-3) ?",
+                "fields": "Stade actuel / Avancement / Vidéo démo",
+                "anchors": [
+                    "Aucun signe de préparation",
+                    "Préparation limitée",
+                    "Préparation insuffisante",
+                    "Préparation crédible, premiers éléments",
+                    "Préparation solide et alignée",
+                    "Préparation excellente, plan clair et démonstrations",
+                ],
+            },
+            {
+                "name": "Ressources techniques mobilisées",
+                "angle": "Les moyens humains/techniques sont-ils adaptés pour réaliser le PoC ?",
+                "fields": "Moyens techniques et humains / Plan PoC",
+                "anchors": [
+                    "Aucun moyen",
+                    "Moyens faibles",
+                    "Moyens insuffisants",
+                    "Moyens adaptés",
+                    "Moyens solides",
+                    "Moyens complets, expertise claire",
+                ],
+            },
+            {
+                "name": "Vision de passage à l'échelle",
+                "angle": "Le projet a-t-il anticipé l'industrialisation après le PoC ?",
+                "fields": "Plan de développement / Calendrier & potentiel de passage à l'échelle",
+                "anchors": [
+                    "Aucune vision",
+                    "Vision très vague",
+                    "Vision limitée",
+                    "Vision partielle mais crédible",
+                    "Vision claire et cohérente",
+                    "Vision solide, structurée, alignée sur croissance",
+                ],
+            },
+        ],
+    },
+    {
+        "axis": "Cohérence TRL, budget et remboursement",
+        "guidance": (
+            "Vérifie si le budget demandé est adapté au TRL et au plan, la capacité de "
+            "gestion financière, et la crédibilité de la trajectoire de remboursement."
+        ),
+        "criteria": [
+            {
+                "name": "Maturité de l'innovation (TRL atteint)",
+                "angle": "Le stade de développement est-il clair et cohérent avec la demande VAIR (PoC, TRL 1-3) ?",
+                "fields": "Stade TRL / Avancement actuel / Vidéo démo",
+                "anchors": [
+                    "Stade incohérent ou non déclaré",
+                    "Stade très flou, pas justifié",
+                    "Stade décrit mais peu crédible",
+                    "Stade clair, premiers éléments tangibles",
+                    "Stade bien défini avec preuves (proto, tests, vidéos)",
+                    "Stade parfaitement défini avec validations solides",
+                ],
+            },
+            {
+                "name": "Pertinence et réalisme du budget",
+                "angle": "Le budget demandé est-il adapté au TRL et au plan de développement annoncé ?",
+                "fields": "Tableau budget détaillé du PoC / Pitch Deck / Calendrier",
+                "anchors": [
+                    "Budget absent ou incohérent",
+                    "Budget approximatif, sans lien avec TRL",
+                    "Budget décrit mais incohérent sur plusieurs postes",
+                    "Budget globalement aligné avec TRL, incohérences mineures",
+                    "Budget structuré, cohérent et bien justifié",
+                    "Budget très solide, aligné TRL et stratégie, justification poste par poste",
+                ],
+            },
+            {
+                "name": "Capacité (ou plan) de gestion financière",
+                "angle": "L'équipe démontre-t-elle une capacité à gérer et reporter les fonds, même sans historique ?",
+                "fields": "Tableau budget / États financiers / Levées précédentes",
+                "anchors": [
+                    "Aucun signe de capacité ni plan",
+                    "Plan flou ou irréaliste",
+                    "Plan basique, plusieurs incohérences",
+                    "Plan structuré, reporting prévu, quelques limites",
+                    "Plan détaillé, reporting clair, alignement avec besoins du PoC",
+                    "Plan de gestion et reporting très solide, prêt à l'exécution",
+                ],
+            },
+            {
+                "name": "Crédibilité de la trajectoire de revenus / remboursement",
+                "angle": "Le modèle économique permet-il d'anticiper la capacité à rembourser l'avance ?",
+                "fields": "Modèle de revenus / Business Model Canvas / Stratégie 3 ans / Traction",
+                "anchors": [
+                    "Aucun modèle économique, aucune piste",
+                    "Modèle théorique, irréaliste",
+                    "Modèle décrit mais flou ou trop optimiste",
+                    "Modèle crédible, premiers signaux de traction possibles",
+                    "Modèle clair, pipeline commercial ou partenariats en cours",
+                    "Modèle très crédible, pipeline solide, forte probabilité de remboursement",
+                ],
+            },
+        ],
+    },
+    {
+        "axis": "Impact environnemental et social",
+        "guidance": (
+            "Mesure le potentiel d'impact environnemental, la durabilité, la capacité à "
+            "mesurer l'impact, ainsi que les aspects sociaux (genre, emplois qualifiés)."
+        ),
+        "criteria": [
+            {
+                "name": "Potentiel d'impact environnemental",
+                "angle": "Quel est le niveau d'impact environnemental positif attendu ?",
+                "fields": "Type d'impact environnemental / Défis environnementaux adressés",
+                "anchors": [
+                    "Aucun impact prévisible",
+                    "Impact hypothétique, non démontré",
+                    "Impact potentiel mais limité",
+                    "Premiers résultats qualitatifs attendus",
+                    "Impact significatif démontré sur un périmètre restreint",
+                    "Impact significatif démontré sur une large échelle",
+                ],
+            },
+            {
+                "name": "Durabilité de la solution",
+                "angle": "La solution est-elle pensée pour être durable à long terme ?",
+                "fields": "Contribution aux ODD / Pitch Deck",
+                "anchors": [
+                    "Aucune considération de durabilité",
+                    "Déclaration d'intention sans actions",
+                    "Premières initiatives mises en place",
+                    "Démarches structurées et mesurées",
+                    "Stratégie de durabilité claire, suivie",
+                    "Durabilité au cœur du projet, rôle de leader",
+                ],
+            },
+            {
+                "name": "Mesure et suivi de l'impact",
+                "angle": "L'entreprise mesure-t-elle son impact environnemental/social ?",
+                "fields": "Modalités de mesure d'impact ODD / Niveau de maîtrise",
+                "anchors": [
+                    "Aucun suivi ni mesure",
+                    "Intention déclarée mais pas d'outil",
+                    "Données collectées de façon limitée",
+                    "Données partielles + reporting basique",
+                    "Système clair de mesure avec objectifs",
+                    "Mesure systématique, reporting complet, labels ou certifications",
+                ],
+            },
+            {
+                "name": "Prise en compte du genre",
+                "angle": "Le projet prend-il en compte l'égalité femmes/hommes ?",
+                "fields": "Actions pour favoriser l'égalité / Nombre de femmes employées",
+                "anchors": [
+                    "Aucune prise en compte",
+                    "Déclaration d'intention",
+                    "Initiatives ponctuelles",
+                    "Initiatives structurées mais limitées",
+                    "Politiques claires et suivies",
+                    "Égalité intégrée dans la culture et reconnue",
+                ],
+            },
+            {
+                "name": "Création d'emplois",
+                "angle": "Le projet a-t-il un potentiel de création d'emplois verts/qualifiés ?",
+                "fields": "Nombre d'employés / Création d'emplois attendue",
+                "anchors": [
+                    "Aucun potentiel",
+                    "Très faible, non qualifié",
+                    "Potentiel modéré, peu qualifié",
+                    "Potentiel modéré, qualifié",
+                    "Potentiel important et qualifié",
+                    "Potentiel important et très qualifié",
+                ],
+            },
+        ],
+    },
+    {
+        "axis": "Risques et crédibilité globale",
+        "guidance": (
+            "Évalue la capacité du projet à anticiper ses risques et à proposer des "
+            "stratégies de mitigation crédibles, ainsi que la vision post-PoC."
+        ),
+        "criteria": [
+            {
+                "name": "Identification et pertinence des risques",
+                "angle": "Les risques principaux (techniques, marché, réglementaires, humains) sont-ils identifiés ?",
+                "fields": "Risques auxquels l'activité est confrontée",
+                "anchors": [
+                    "Aucun risque",
+                    "Risques superficiels",
+                    "Risques listés sans analyse",
+                    "Risques identifiés, analyse partielle",
+                    "Risques bien identifiés et analysés",
+                    "Analyse complète et priorisée",
+                ],
+            },
+            {
+                "name": "Stratégies de mitigation",
+                "angle": "Le projet prévoit-il des moyens concrets pour gérer ces risques ?",
+                "fields": "Moyens de contournement / Pitch Deck",
+                "anchors": [
+                    "Aucun plan",
+                    "Plan vague",
+                    "Plan partiel",
+                    "Plan crédible mais incomplet",
+                    "Plan structuré et réaliste",
+                    "Plan solide, proactif, crédible",
+                ],
+            },
+            {
+                "name": "Vision de passage à l'échelle post-PoC",
+                "angle": "L'entreprise a-t-elle anticipé son développement après VAIR ?",
+                "fields": "Plan PoC / Calendrier de réalisation",
+                "anchors": [
+                    "Aucune vision",
+                    "Vision vague",
+                    "Vision limitée",
+                    "Vision crédible mais partielle",
+                    "Vision claire et cohérente",
+                    "Vision solide, alignée sur croissance",
+                ],
+            },
+        ],
+    },
+]
+
+AXIS_WEIGHTS: dict[str, float] = {
+    "Innovation et Proposition de valeur": 0.18,
+    "Adéquation au marché ciblé": 0.18,
+    "Qualité et complémentarité de l'équipe": 0.18,
+    "Évaluation du PoC": 0.16,
+    "Cohérence TRL, budget et remboursement": 0.14,
+    "Impact environnemental et social": 0.10,
+    "Risques et crédibilité globale": 0.06,
+}
+
+
+def committee_scorecard(scores: dict[str, dict[str, int]]) -> dict[str, Any]:
+    """Aggregate per-criterion scores (0-5) into per-axis and global notes."""
+    axis_rows: list[dict[str, Any]] = []
+    global_weighted = 0.0
+    total_weight = 0.0
+    for block in SCORING_GRID:
+        axis = block["axis"]
+        axis_scores = scores.get(axis, {})
+        crit_values = [
+            max(0, min(5, int(axis_scores.get(crit["name"], 0))))
+            for crit in block["criteria"]
+        ]
+        avg = round(sum(crit_values) / max(1, len(crit_values)))
+        weight = AXIS_WEIGHTS.get(axis, 1.0 / len(SCORING_GRID))
+        global_weighted += avg * weight
+        total_weight += weight
+        axis_rows.append(
+            {
+                "axis": axis,
+                "weight": weight,
+                "criteria": [
+                    {"name": crit["name"], "score": value}
+                    for crit, value in zip(block["criteria"], crit_values)
+                ],
+                "note": avg,
+            }
+        )
+    global_note = round(global_weighted / max(1e-9, total_weight), 2)
+    if global_note >= 3.5:
+        recommendation = "Positif"
+        tone = "ok"
+    elif global_note >= 2.5:
+        recommendation = "Neutre"
+        tone = "warn"
+    else:
+        recommendation = "Négatif"
+        tone = "bad"
+    return {
+        "axes": axis_rows,
+        "global_note": global_note,
+        "recommendation": recommendation,
+        "tone": tone,
+    }
+
+
+def auto_score_grid(inputs: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """Heuristic auto-scoring from assessment form inputs (0-5 per criterion)."""
+    stage = int(inputs.get("stage", 1))
+    team = float(inputs.get("team", 0.65))
+    market = float(inputs.get("market", 0.65))
+    product = float(inputs.get("product", 0.60))
+    competition = float(inputs.get("competition", 0.50))
+    revenue = float(inputs.get("revenue_tnd", 0.0) or 0.0)
+    growth = float(inputs.get("growth", 0.40))
+    is_labelled = bool(inputs.get("is_labelled", False))
+    n_founders = int(inputs.get("n_founders", 1))
+    has_web = bool(inputs.get("has_web", False))
+    has_email = bool(inputs.get("has_email", False))
+
+    def clamp(x: float) -> int:
+        return int(max(0, min(5, round(x))))
+
+    base_innov = product * 4 + (1 if stage >= 1 else 0)
+    base_market = market * 4 + (1 if revenue > 0 else 0)
+    base_team = team * 4 + (1 if n_founders >= 2 else 0) + (1 if is_labelled else 0)
+    base_poc = product * 4 + stage
+    base_budget = (team * 0.5 + product * 0.5) * 4 + (1 if revenue > 0 else 0)
+    base_impact = market * 3 + (1 if is_labelled else 0) + (1 if has_web else 0)
+    base_risk = (1 - competition) * 4 + (1 if has_email else 0)
+
+    return {
+        "Innovation et Proposition de valeur": {
+            "Originalité de la solution": clamp(base_innov - 1),
+            "Pertinence de la valeur ajoutée pour l'utilisateur": clamp(base_innov),
+        },
+        "Adéquation au marché ciblé": {
+            "Clarté et pertinence de la définition du marché": clamp(base_market),
+            "Validation et accessibilité du marché": clamp(base_market - 1 + (1 if revenue > 0 else 0)),
+            "Crédibilité de la stratégie d'accès au marché": clamp(market * 4 + growth),
+            "Partenaires stratégiques (optionnel)": clamp(market * 3 + (1 if is_labelled else 0)),
+        },
+        "Qualité et complémentarité de l'équipe": {
+            "Compétences et expérience": clamp(base_team),
+            "Capacité d'exécution et organisation": clamp(team * 4 + stage),
+            "Historique entrepreneurial & PI": clamp(team * 3 + (1 if is_labelled else 0)),
+        },
+        "Évaluation du PoC": {
+            "Clarté de la description technique": clamp(product * 4 + (1 if has_web else 0)),
+            "Préparation technique pour le PoC": clamp(base_poc),
+            "Ressources techniques mobilisées": clamp(team * 3 + product * 2),
+            "Vision de passage à l'échelle": clamp(market * 3 + growth * 2),
+        },
+        "Cohérence TRL, budget et remboursement": {
+            "Maturité de l'innovation (TRL atteint)": clamp(stage * 2 + product * 2),
+            "Pertinence et réalisme du budget": clamp(base_budget),
+            "Capacité (ou plan) de gestion financière": clamp(team * 4 + (1 if revenue > 0 else 0)),
+            "Crédibilité de la trajectoire de revenus / remboursement": clamp(
+                (revenue > 0) * 3 + growth * 2 + market * 1
+            ),
+        },
+        "Impact environnemental et social": {
+            "Potentiel d'impact environnemental": clamp(base_impact),
+            "Durabilité de la solution": clamp(market * 3 + (1 if is_labelled else 0)),
+            "Mesure et suivi de l'impact": clamp(team * 3 + (1 if is_labelled else 0)),
+            "Prise en compte du genre": clamp(2 + (1 if is_labelled else 0)),
+            "Création d'emplois": clamp(team * 3 + (1 if revenue > 0 else 0)),
+        },
+        "Risques et crédibilité globale": {
+            "Identification et pertinence des risques": clamp(base_risk),
+            "Stratégies de mitigation": clamp((1 - competition) * 4 + team),
+            "Vision de passage à l'échelle post-PoC": clamp(market * 3 + growth * 2),
+        },
+    }
+
+
+def scoring_grid_excel(payload: dict[str, Any], scorecard: dict[str, Any]) -> io.BytesIO:
+    """Export a committee scorecard in the VAIR Greentech grid format."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Synthèse"
+    navy = PatternFill("solid", fgColor="272E5F")
+    light = PatternFill("solid", fgColor="F4F5F9")
+    white_bold = Font(color="FFFFFF", bold=True, size=12)
+    bold = Font(bold=True)
+    wrap = Alignment(wrap_text=True, vertical="top")
+    thin = Side(style="thin", color="D9DCE6")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    cover["A1"] = "CDC LAUNCHPAD — Grille de scoring VAIR"
+    cover["A1"].font = Font(size=15, bold=True, color="272E5F")
+    rows = [
+        ("Startup", payload.get("name", "")),
+        ("Secteur", payload.get("sector", "")),
+        ("Région", payload.get("region", "")),
+        ("Date", f"{dt.date.today():%Y-%m-%d}"),
+        ("Note globale (/5)", scorecard["global_note"]),
+        ("Recommandation", scorecard["recommendation"]),
+    ]
+    for i, (key, value) in enumerate(rows, start=3):
+        cover.cell(i, 1, key).font = bold
+        cover.cell(i, 2, value)
+    cover.cell(3 + len(rows) + 1, 1, "Axe").font = white_bold
+    cover.cell(3 + len(rows) + 1, 1).fill = navy
+    cover.cell(3 + len(rows) + 1, 2, "Pondération").font = white_bold
+    cover.cell(3 + len(rows) + 1, 2).fill = navy
+    cover.cell(3 + len(rows) + 1, 3, "Note (/5)").font = white_bold
+    cover.cell(3 + len(rows) + 1, 3).fill = navy
+    for j, axis_row in enumerate(scorecard["axes"], start=3 + len(rows) + 2):
+        cover.cell(j, 1, axis_row["axis"])
+        cover.cell(j, 2, f"{axis_row['weight']:.0%}")
+        cover.cell(j, 3, axis_row["note"])
+    cover.column_dimensions["A"].width = 46
+    cover.column_dimensions["B"].width = 18
+    cover.column_dimensions["C"].width = 14
+
+    for block, axis_row in zip(SCORING_GRID, scorecard["axes"]):
+        title = block["axis"][:28]
+        ws = wb.create_sheet(title=title or "Axe")
+        ws["A1"] = block["axis"]
+        ws["A1"].font = Font(size=13, bold=True, color="FFFFFF")
+        ws["A1"].fill = navy
+        ws.merge_cells("A1:I1")
+        ws["A2"] = block["guidance"]
+        ws["A2"].alignment = wrap
+        ws.merge_cells("A2:I2")
+        headers = ["Critère", "Angle d'analyse", "Éléments à consulter",
+                   "0", "1", "2", "3", "4", "5", "Note"]
+        for col, header in enumerate(headers, start=1):
+            cell = ws.cell(4, col, header)
+            cell.font = white_bold
+            cell.fill = navy
+            cell.alignment = wrap
+            cell.border = border
+        scores_by_name = {c["name"]: c["score"] for c in axis_row["criteria"]}
+        for row_i, crit in enumerate(block["criteria"], start=5):
+            ws.cell(row_i, 1, crit["name"]).font = bold
+            ws.cell(row_i, 2, crit["angle"])
+            ws.cell(row_i, 3, crit["fields"])
+            for k, anchor in enumerate(crit["anchors"]):
+                ws.cell(row_i, 4 + k, anchor)
+            ws.cell(row_i, 10, scores_by_name.get(crit["name"], 0)).font = bold
+            for col in range(1, 11):
+                ws.cell(row_i, col).alignment = wrap
+                ws.cell(row_i, col).border = border
+        total_row = 5 + len(block["criteria"])
+        ws.cell(total_row, 1, f"Note {block['axis']}").font = bold
+        ws.cell(total_row, 1).fill = light
+        ws.cell(total_row, 10, axis_row["note"]).font = bold
+        ws.cell(total_row, 10).fill = light
+        widths = [32, 38, 30, 18, 18, 18, 18, 18, 18, 8]
+        for col, w in enumerate(widths, start=1):
+            ws.column_dimensions[chr(64 + col)].width = w
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+# ---------------------------------------------------------------------------
+# FMVA valuation workbench (Berkus / Scorecard / RFS / VC / Hybrid DCF + Ensemble)
+# ---------------------------------------------------------------------------
+TND_PER_USD = 3.1
+TUNISIA_BASELINE_USD = 1_800_000
+
+SCORECARD_WEIGHTS: dict[str, float] = {
+    "Strength of Management": 0.25,
+    "Size of Opportunity": 0.20,
+    "Product/Technology": 0.15,
+    "Competitive Environment": 0.10,
+    "Marketing/Sales/Partnerships": 0.10,
+    "Need for more investment": 0.10,
+    "Other (barriers, quality, speed)": 0.10,
+}
+
+RFS_DIMENSIONS: list[str] = [
+    "Management risk",
+    "Stage of business",
+    "Legislation/Political",
+    "Manufacturing",
+    "Sales & marketing",
+    "Funding/capital",
+    "Competition",
+    "Technology",
+    "Litigation",
+    "International",
+    "Reputation",
+    "Exit value",
+]
+
+BERKUS_FACTORS: list[str] = [
+    "Sound idea",
+    "Prototype (reduces tech risk)",
+    "Quality management team",
+    "Strategic relationships",
+    "Product rollout or sales",
+]
+
+ENSEMBLE_WEIGHTS: dict[str, float] = {
+    "Berkus": 0.20,
+    "Scorecard (Payne)": 0.25,
+    "Risk Factor Summation": 0.15,
+    "Venture Capital Method": 0.20,
+    "Hybrid DCF": 0.20,
+}
+
+
+def auto_fmva_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Translate assessment form answers into FMVA pre-fill inputs."""
+    stage = int(inputs.get("stage", 1))
+    team = float(inputs.get("team", 0.65))
+    market = float(inputs.get("market", 0.65))
+    product = float(inputs.get("product", 0.60))
+    competition = float(inputs.get("competition", 0.50))
+    revenue_tnd = float(inputs.get("revenue_tnd", 0.0) or 0.0)
+    growth = float(inputs.get("growth", 0.40))
+    is_labelled = bool(inputs.get("is_labelled", False))
+
+    def cap(v: float, lo: float = 0.0, hi: float = 500_000) -> int:
+        return int(round(max(lo, min(hi, v))))
+
+    berkus = {
+        "Sound idea": cap(500_000 * (0.4 + 0.6 * market)),
+        "Prototype (reduces tech risk)": cap(500_000 * (0.3 + 0.7 * product)),
+        "Quality management team": cap(500_000 * (0.3 + 0.7 * team)),
+        "Strategic relationships": cap(500_000 * (0.2 + 0.6 * market + 0.2 * (1 if is_labelled else 0))),
+        "Product rollout or sales": cap(500_000 * (0.2 + 0.8 * min(1.0, stage / 2 + (revenue_tnd > 0)))),
+    }
+
+    def to_payne(x: float) -> float:
+        return round(0.5 + x, 2)
+
+    scorecard = {
+        "Strength of Management": to_payne(team),
+        "Size of Opportunity": to_payne(market),
+        "Product/Technology": to_payne(product),
+        "Competitive Environment": to_payne(1 - competition),
+        "Marketing/Sales/Partnerships": to_payne((market + (1 if is_labelled else 0) * 0.2) / 1.2),
+        "Need for more investment": to_payne(0.5),
+        "Other (barriers, quality, speed)": to_payne((product + (1 if is_labelled else 0) * 0.2) / 1.2),
+    }
+
+    def to_rfs(level: float) -> int:
+        if level >= 0.75:
+            return 2
+        if level >= 0.55:
+            return 1
+        if level >= 0.40:
+            return 0
+        if level >= 0.25:
+            return -1
+        return -2
+
+    rfs = {
+        "Management risk": to_rfs(team),
+        "Stage of business": to_rfs(0.3 + 0.35 * stage),
+        "Legislation/Political": 1 if is_labelled else 0,
+        "Manufacturing": to_rfs(product),
+        "Sales & marketing": to_rfs(market),
+        "Funding/capital": to_rfs(0.5 + 0.3 * (revenue_tnd > 0)),
+        "Competition": to_rfs(1 - competition),
+        "Technology": to_rfs(product),
+        "Litigation": 0,
+        "International": to_rfs(0.4 * market),
+        "Reputation": to_rfs(team),
+        "Exit value": to_rfs(market),
+    }
+
+    vc = {
+        "current_revenue_tnd": revenue_tnd if revenue_tnd > 0 else 850_000,
+        "growth": max(0.10, growth),
+        "exit_year": 5,
+        "exit_multiple": 4.5,
+        "target_return": 10.0,
+        "round_size_usd": 500_000,
+    }
+
+    dcf = {
+        "starting_ebitda_tnd": max(120_000, revenue_tnd * 0.15) if revenue_tnd > 0 else 120_000,
+        "ebitda_growth": max(0.20, growth),
+        "wacc": 0.275,
+        "terminal_multiple": 5.0,
+    }
+
+    return {
+        "baseline_usd": TUNISIA_BASELINE_USD,
+        "tnd_per_usd": TND_PER_USD,
+        "berkus": berkus,
+        "scorecard": scorecard,
+        "rfs": rfs,
+        "vc": vc,
+        "dcf": dcf,
+    }
+
+
+def fmva_valuation(fmva: dict[str, Any]) -> dict[str, Any]:
+    """Run all 5 FMVA methods + ensemble triangulation."""
+    baseline_usd = float(fmva.get("baseline_usd", TUNISIA_BASELINE_USD))
+    tnd_per_usd = float(fmva.get("tnd_per_usd", TND_PER_USD))
+
+    berkus_values = fmva.get("berkus", {})
+    berkus_usd = sum(float(berkus_values.get(f, 0)) for f in BERKUS_FACTORS)
+    berkus_cap_ok = berkus_usd <= 2_500_000
+
+    sc = fmva.get("scorecard", {})
+    weighted = sum(SCORECARD_WEIGHTS[f] * float(sc.get(f, 1.0)) for f in SCORECARD_WEIGHTS)
+    scorecard_usd = baseline_usd * weighted
+
+    rfs_inputs = fmva.get("rfs", {})
+    rfs_adjust = sum(int(rfs_inputs.get(d, 0)) * 250_000 for d in RFS_DIMENSIONS)
+    rfs_usd = baseline_usd + rfs_adjust
+
+    vc = fmva.get("vc", {})
+    current = float(vc.get("current_revenue_tnd", 0))
+    g = float(vc.get("growth", 0.4))
+    n = int(vc.get("exit_year", 5))
+    exit_mult = float(vc.get("exit_multiple", 4.5))
+    target_return = float(vc.get("target_return", 10.0))
+    projected_exit_tnd = current * (1 + g) ** n * exit_mult
+    projected_exit_usd = projected_exit_tnd / tnd_per_usd
+    round_size_usd = float(vc.get("round_size_usd", 500_000))
+    post_money_usd = projected_exit_usd / max(1e-6, target_return)
+    vc_usd = max(0.0, post_money_usd - round_size_usd)
+
+    dcf = fmva.get("dcf", {})
+    ebitda0 = float(dcf.get("starting_ebitda_tnd", 120_000))
+    ebitda_g = float(dcf.get("ebitda_growth", 0.45))
+    wacc = float(dcf.get("wacc", 0.275))
+    term_mult = float(dcf.get("terminal_multiple", 5.0))
+    pv_sum_tnd = 0.0
+    ebitda_y = ebitda0
+    ebitda_path = []
+    for year in range(1, 6):
+        ebitda_y = ebitda_y * (1 + ebitda_g)
+        discount = (1 + wacc) ** year
+        pv = ebitda_y / discount
+        pv_sum_tnd += pv
+        ebitda_path.append({"year": year, "ebitda": round(ebitda_y), "pv": round(pv)})
+    terminal_tnd = ebitda_y * term_mult
+    pv_terminal_tnd = terminal_tnd / (1 + wacc) ** 5
+    enterprise_tnd = pv_sum_tnd + pv_terminal_tnd
+    dcf_usd = enterprise_tnd / tnd_per_usd
+
+    methods = {
+        "Berkus": berkus_usd,
+        "Scorecard (Payne)": scorecard_usd,
+        "Risk Factor Summation": rfs_usd,
+        "Venture Capital Method": vc_usd,
+        "Hybrid DCF": dcf_usd,
+    }
+    weighted_sum = sum(ENSEMBLE_WEIGHTS[m] * v for m, v in methods.items())
+    low = min(methods.values())
+    high = max(methods.values())
+    iqr_ratio = (high - low) / max(1.0, weighted_sum)
+    review_flag = iqr_ratio > 0.6
+
+    return {
+        "methods_usd": methods,
+        "methods_tnd": {m: v * tnd_per_usd for m, v in methods.items()},
+        "ensemble_usd": weighted_sum,
+        "ensemble_tnd": weighted_sum * tnd_per_usd,
+        "low_usd": low,
+        "high_usd": high,
+        "iqr_ratio": iqr_ratio,
+        "review_flag": review_flag,
+        "berkus_cap_ok": berkus_cap_ok,
+        "berkus_breakdown": {f: float(berkus_values.get(f, 0)) for f in BERKUS_FACTORS},
+        "scorecard_weighted_multiplier": weighted,
+        "rfs_adjustment_usd": rfs_adjust,
+        "vc_breakdown": {
+            "projected_exit_tnd": projected_exit_tnd,
+            "projected_exit_usd": projected_exit_usd,
+            "post_money_usd": post_money_usd,
+            "round_size_usd": round_size_usd,
+        },
+        "dcf_breakdown": {
+            "path": ebitda_path,
+            "pv_explicit_tnd": pv_sum_tnd,
+            "terminal_tnd": terminal_tnd,
+            "pv_terminal_tnd": pv_terminal_tnd,
+            "enterprise_tnd": enterprise_tnd,
+            "enterprise_usd": dcf_usd,
+        },
+    }
+
+
+def fmva_workbook_excel(payload: dict[str, Any], fmva: dict[str, Any], result: dict[str, Any]) -> io.BytesIO:
+    """Export a full FMVA workbook (Inputs, Berkus, Scorecard, RFS, VC, DCF, Ensemble)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    wb = Workbook()
+    navy = PatternFill("solid", fgColor="272E5F")
+    red = PatternFill("solid", fgColor="D10A11")
+    light = PatternFill("solid", fgColor="F4F5F9")
+    white_bold = Font(color="FFFFFF", bold=True)
+    bold = Font(bold=True)
+    thin = Side(style="thin", color="D9DCE6")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def header(ws, row, cells, fill=navy):
+        for col, val in enumerate(cells, start=1):
+            c = ws.cell(row, col, val)
+            c.font = white_bold
+            c.fill = fill
+            c.border = border
+            c.alignment = Alignment(wrap_text=True)
+
+    def body_row(ws, row, cells):
+        for col, val in enumerate(cells, start=1):
+            c = ws.cell(row, col, val)
+            c.border = border
+
+    ws = wb.active
+    ws.title = "Inputs"
+    ws["A1"] = "FMVA AutoFill — Inputs"
+    ws["A1"].font = Font(size=14, bold=True, color="272E5F")
+    rows = [
+        ("Startup name", payload.get("name", "")),
+        ("Sector", payload.get("sector", "")),
+        ("Region", payload.get("region", "")),
+        ("Date", f"{dt.date.today():%Y-%m-%d}"),
+        ("Tunisia baseline pre-money (USD)", fmva.get("baseline_usd", TUNISIA_BASELINE_USD)),
+        ("TND to USD conversion rate", fmva.get("tnd_per_usd", TND_PER_USD)),
+        ("WACC", fmva.get("dcf", {}).get("wacc", 0.275)),
+        ("Terminal multiple", fmva.get("dcf", {}).get("terminal_multiple", 5.0)),
+        ("Target VC return (multiple)", fmva.get("vc", {}).get("target_return", 10.0)),
+        ("Expected exit years", fmva.get("vc", {}).get("exit_year", 5)),
+    ]
+    for i, (k, v) in enumerate(rows, start=3):
+        ws.cell(i, 1, k).font = bold
+        ws.cell(i, 2, v)
+    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["B"].width = 26
+
+    ws = wb.create_sheet("Berkus")
+    ws["A1"] = "Berkus — 5 factors x up to USD 500k"
+    ws["A1"].font = Font(size=13, bold=True, color="272E5F")
+    header(ws, 3, ["Factor", "Max (USD)", "Assigned (USD)"])
+    for i, factor in enumerate(BERKUS_FACTORS, start=4):
+        body_row(ws, i, [factor, 500_000, fmva["berkus"].get(factor, 0)])
+    total_row = 4 + len(BERKUS_FACTORS)
+    ws.cell(total_row, 1, "TOTAL (USD)").font = bold
+    ws.cell(total_row, 3, sum(fmva["berkus"].values())).font = bold
+    ws.cell(total_row, 1).fill = light
+    ws.cell(total_row, 3).fill = light
+    ws.cell(total_row + 1, 1, "Cap check (<= USD 2,500,000)").font = bold
+    ws.cell(total_row + 1, 3, "OK" if result["berkus_cap_ok"] else "EXCEEDED")
+    ws.column_dimensions["A"].width = 40
+    for c in ["B", "C"]:
+        ws.column_dimensions[c].width = 18
+
+    ws = wb.create_sheet("Scorecard")
+    ws["A1"] = "Scorecard (Payne) — weighted vs Tunisia baseline"
+    ws["A1"].font = Font(size=13, bold=True, color="272E5F")
+    ws.cell(3, 1, "Regional baseline pre-money (USD)").font = bold
+    ws.cell(3, 2, fmva.get("baseline_usd", TUNISIA_BASELINE_USD))
+    header(ws, 5, ["Factor", "Weight", "Target Score (0.5-1.5)", "Weighted"])
+    for i, (factor, weight) in enumerate(SCORECARD_WEIGHTS.items(), start=6):
+        target = float(fmva["scorecard"].get(factor, 1.0))
+        body_row(ws, i, [factor, weight, target, round(weight * target, 4)])
+    total_row = 6 + len(SCORECARD_WEIGHTS)
+    ws.cell(total_row, 1, "Total weighted multiplier").font = bold
+    ws.cell(total_row, 4, round(result["scorecard_weighted_multiplier"], 4)).font = bold
+    ws.cell(total_row + 1, 1, "SCORECARD VALUATION (USD)").font = bold
+    ws.cell(total_row + 1, 2, round(result["methods_usd"]["Scorecard (Payne)"]))
+    ws.cell(total_row + 1, 2).fill = light
+    ws.column_dimensions["A"].width = 40
+    for c in ["B", "C", "D"]:
+        ws.column_dimensions[c].width = 18
+
+    ws = wb.create_sheet("RiskFactor")
+    ws["A1"] = "Risk Factor Summation — 12 dimensions"
+    ws["A1"].font = Font(size=13, bold=True, color="272E5F")
+    ws.cell(3, 1, "Base valuation (USD)").font = bold
+    ws.cell(3, 2, fmva.get("baseline_usd", TUNISIA_BASELINE_USD))
+    ws.cell(4, 1, "Increment size (USD)").font = bold
+    ws.cell(4, 2, 250_000)
+    header(ws, 6, ["Risk Factor", "Rating (-2 to +2)", "Adjustment (USD)"])
+    for i, dim in enumerate(RFS_DIMENSIONS, start=7):
+        rating = int(fmva["rfs"].get(dim, 0))
+        body_row(ws, i, [dim, rating, rating * 250_000])
+    total_row = 7 + len(RFS_DIMENSIONS)
+    ws.cell(total_row, 1, "Total adjustment").font = bold
+    ws.cell(total_row, 3, result["rfs_adjustment_usd"]).font = bold
+    ws.cell(total_row + 1, 1, "RFS VALUATION (USD)").font = bold
+    ws.cell(total_row + 1, 3, round(result["methods_usd"]["Risk Factor Summation"]))
+    ws.cell(total_row + 1, 3).fill = light
+    ws.column_dimensions["A"].width = 36
+    for c in ["B", "C"]:
+        ws.column_dimensions[c].width = 22
+
+    ws = wb.create_sheet("VC_Method")
+    ws["A1"] = "Venture Capital Method"
+    ws["A1"].font = Font(size=13, bold=True, color="272E5F")
+    vc = fmva.get("vc", {})
+    vcb = result["vc_breakdown"]
+    pairs = [
+        ("Current annual revenue (TND)", vc.get("current_revenue_tnd", 0)),
+        ("Revenue growth rate (annual)", vc.get("growth", 0.4)),
+        ("Exit year", vc.get("exit_year", 5)),
+        ("Exit revenue multiple", vc.get("exit_multiple", 4.5)),
+        ("Projected exit value (TND)", round(vcb["projected_exit_tnd"])),
+        ("TND to USD rate", fmva.get("tnd_per_usd", TND_PER_USD)),
+        ("Projected exit value (USD)", round(vcb["projected_exit_usd"])),
+        ("Target VC return (multiple)", vc.get("target_return", 10.0)),
+        ("Post-money valuation (USD)", round(vcb["post_money_usd"])),
+        ("Round size (USD)", round(vcb["round_size_usd"])),
+        ("PRE-MONEY VALUATION (USD)", round(result["methods_usd"]["Venture Capital Method"])),
+    ]
+    for i, (k, v) in enumerate(pairs, start=3):
+        ws.cell(i, 1, k).font = bold
+        ws.cell(i, 2, v)
+    ws.column_dimensions["A"].width = 36
+    ws.column_dimensions["B"].width = 22
+
+    ws = wb.create_sheet("Hybrid_DCF")
+    ws["A1"] = "Hybrid DCF — 5y explicit + terminal multiple"
+    ws["A1"].font = Font(size=13, bold=True, color="272E5F")
+    d = fmva.get("dcf", {})
+    db = result["dcf_breakdown"]
+    pre = [
+        ("Starting EBITDA (TND)", d.get("starting_ebitda_tnd", 120_000)),
+        ("EBITDA growth rate", d.get("ebitda_growth", 0.45)),
+        ("WACC", d.get("wacc", 0.275)),
+        ("Terminal multiple", d.get("terminal_multiple", 5.0)),
+    ]
+    for i, (k, v) in enumerate(pre, start=3):
+        ws.cell(i, 1, k).font = bold
+        ws.cell(i, 2, v)
+    header(ws, 8, ["Item", "Year 1", "Year 2", "Year 3", "Year 4", "Year 5"])
+    ws.cell(9, 1, "EBITDA (TND)").font = bold
+    ws.cell(10, 1, "PV of EBITDA (TND)").font = bold
+    for j, p in enumerate(db["path"], start=2):
+        ws.cell(9, j, p["ebitda"])
+        ws.cell(10, j, p["pv"])
+    base = 12
+    rows2 = [
+        ("Sum of PV (explicit, TND)", round(db["pv_explicit_tnd"])),
+        ("Terminal value (TND)", round(db["terminal_tnd"])),
+        ("PV of terminal (TND)", round(db["pv_terminal_tnd"])),
+        ("Enterprise value (TND)", round(db["enterprise_tnd"])),
+        ("Enterprise value (USD)", round(db["enterprise_usd"])),
+    ]
+    for i, (k, v) in enumerate(rows2, start=base):
+        ws.cell(i, 1, k).font = bold
+        ws.cell(i, 2, v)
+    ws.column_dimensions["A"].width = 36
+    for c in ["B", "C", "D", "E", "F"]:
+        ws.column_dimensions[c].width = 16
+
+    ws = wb.create_sheet("Ensemble")
+    ws["A1"] = "Ensemble Valuation — Triangulated"
+    ws["A1"].font = Font(size=13, bold=True, color="272E5F")
+    header(ws, 3, ["Method", "Valuation (USD)", "Weight", "Weighted (USD)"], fill=red)
+    for i, (m, v) in enumerate(result["methods_usd"].items(), start=4):
+        w = ENSEMBLE_WEIGHTS[m]
+        body_row(ws, i, [m, round(v), w, round(v * w)])
+    end = 4 + len(result["methods_usd"])
+    ws.cell(end + 1, 1, "ENSEMBLE VALUATION (USD)").font = bold
+    ws.cell(end + 1, 4, round(result["ensemble_usd"])).font = bold
+    ws.cell(end + 1, 1).fill = light
+    ws.cell(end + 1, 4).fill = light
+    ws.cell(end + 2, 1, "Low (min of 5 methods)")
+    ws.cell(end + 2, 4, round(result["low_usd"]))
+    ws.cell(end + 3, 1, "High (max of 5 methods)")
+    ws.cell(end + 3, 4, round(result["high_usd"]))
+    ws.cell(end + 4, 1, "IQR (% of ensemble)")
+    ws.cell(end + 4, 4, f"{result['iqr_ratio']:.1%}")
+    ws.cell(end + 5, 1, "Data-quality flag (>60% IQR = review)").font = bold
+    ws.cell(end + 5, 4, "Review required" if result["review_flag"] else "OK")
+    ws.column_dimensions["A"].width = 38
+    for c in ["B", "C", "D"]:
+        ws.column_dimensions[c].width = 18
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 
 def valuation_engine(v: dict[str, Any]) -> dict[str, Any]:
@@ -1176,6 +2207,7 @@ def run_app() -> None:
             t("tab_ecosystem", lang),
             t("tab_portfolio", lang),
             t("tab_assessment", lang),
+            t("tab_committee", lang),
             t("tab_valuation", lang),
             t("tab_learning", lang),
             t("tab_reports", lang),
@@ -1273,29 +2305,32 @@ def run_app() -> None:
             submitted = st.form_submit_button("Run assessment", use_container_width=True)
 
         if submitted:
-            result = assess_one(
-                bundle,
-                {
-                    "sector": sector,
-                    "founding_year": year,
-                    "n_founders": founders,
-                    "is_labelled": labelled,
-                    "has_email": has_email,
-                    "has_web": has_web,
-                },
-            )
-            valuation = valuation_engine(
-                {
-                    "stage": ["Idea", "MVP", "Revenue-generating"].index(stage),
-                    "team": team,
-                    "market": market,
-                    "product": product,
-                    "competition": competition,
-                    "revenue_tnd": revenue,
-                    "growth": growth,
-                }
-            )
+            assess_inputs = {
+                "sector": sector,
+                "founding_year": year,
+                "n_founders": founders,
+                "is_labelled": labelled,
+                "has_email": has_email,
+                "has_web": has_web,
+                "stage": ["Idea", "MVP", "Revenue-generating"].index(stage),
+                "team": team,
+                "market": market,
+                "product": product,
+                "competition": competition,
+                "revenue_tnd": revenue,
+                "growth": growth,
+            }
+            result = assess_one(bundle, assess_inputs)
+            valuation = valuation_engine(assess_inputs)
             db_alert = lookup_startup(df, name)["title"]
+            session["scoring_inputs"] = auto_score_grid(assess_inputs)
+            session["fmva_inputs"] = auto_fmva_inputs(assess_inputs)
+            session["scoring_meta"] = {
+                "name": name,
+                "sector": sector,
+                "region": region,
+                "evaluator": "",
+            }
             payload = {
                 "name": name,
                 "sector": sector,
@@ -1355,51 +2390,205 @@ def run_app() -> None:
                 )
 
     with tabs[3]:
-        st.markdown("### Standalone valuation")
-        c1, c2, c3 = st.columns(3)
-        v_stage = c1.selectbox("Stage", ["Idea", "MVP", "Revenue-generating"], index=1)
-        v_revenue = c2.number_input(
-            "Annual revenue (TND)",
-            min_value=0,
-            max_value=50_000_000,
-            value=0,
-            step=50_000,
-            key="standalone_revenue",
+        st.markdown("### Committee scoring — VAIR Greentech grid")
+        st.caption(
+            "Auto-pré-rempli depuis l'évaluation. Les membres du comité ajustent chaque "
+            "critère (0-5), la note d'axe et la note globale sont recalculées en direct."
         )
-        v_growth = c3.slider("Growth", 0.0, 1.5, 0.40, 0.05, key="standalone_growth")
-        c4, c5, c6, c7 = st.columns(4)
-        v_team = c4.slider("Team", 0.0, 1.0, 0.70, 0.05, key="standalone_team")
-        v_market = c5.slider("Market", 0.0, 1.0, 0.65, 0.05, key="standalone_market")
-        v_product = c6.slider("Product", 0.0, 1.0, 0.60, 0.05, key="standalone_product")
-        v_comp = c7.slider("Competition", 0.0, 1.0, 0.50, 0.05, key="standalone_comp")
-        valuation = valuation_engine(
-            {
-                "stage": ["Idea", "MVP", "Revenue-generating"].index(v_stage),
-                "revenue_tnd": v_revenue,
-                "growth": v_growth,
-                "team": v_team,
-                "market": v_market,
-                "product": v_product,
-                "competition": v_comp,
-            }
+        if "scoring_inputs" not in session:
+            session["scoring_inputs"] = auto_score_grid(
+                {"stage": 1, "team": 0.65, "market": 0.65, "product": 0.60,
+                 "competition": 0.50, "revenue_tnd": 0, "growth": 0.40,
+                 "is_labelled": False, "has_email": False, "has_web": False,
+                 "n_founders": 2}
+            )
+            session["scoring_meta"] = {"name": "", "sector": "", "region": "", "evaluator": ""}
+
+        meta = session["scoring_meta"]
+        m1, m2, m3 = st.columns(3)
+        meta["name"] = m1.text_input("Startup", meta.get("name", ""), key="grid_name")
+        meta["sector"] = m2.text_input("Secteur", meta.get("sector", ""), key="grid_sector")
+        meta["evaluator"] = m3.text_input("Membre du comité", meta.get("evaluator", ""), key="grid_eval")
+
+        scores_state = session["scoring_inputs"]
+        for block in SCORING_GRID:
+            with st.expander(f"**{block['axis']}**", expanded=False):
+                st.caption(block["guidance"])
+                axis_scores = scores_state.setdefault(block["axis"], {})
+                for crit in block["criteria"]:
+                    st.markdown(f"**{crit['name']}**")
+                    st.caption(f"_{crit['angle']}_ — _Champs : {crit['fields']}_")
+                    current = int(axis_scores.get(crit["name"], 0))
+                    new = st.slider(
+                        "Note (0-5)",
+                        min_value=0, max_value=5, value=current, step=1,
+                        format="%d",
+                        key=f"score_{block['axis']}_{crit['name']}",
+                        help=" | ".join(f"{i}: {a}" for i, a in enumerate(crit["anchors"])),
+                    )
+                    axis_scores[crit["name"]] = new
+                    st.caption(f"→ {crit['anchors'][new]}")
+
+        scorecard = committee_scorecard(scores_state)
+        st.markdown("### Synthèse")
+        sc1, sc2, sc3 = st.columns([1, 1, 2])
+        tone_color = {"ok": GREEN, "warn": AMBER, "bad": RED}[scorecard["tone"]]
+        sc1.metric("Note globale", f"{scorecard['global_note']:.2f} / 5")
+        sc2.markdown(
+            f"<h3 style='color:{tone_color};margin-top:0'>{scorecard['recommendation']}</h3>",
+            unsafe_allow_html=True,
         )
-        st.metric(
-            "Reconciled range",
-            f"{valuation['low']:,.0f} - {valuation['high']:,.0f} TND",
-            f"Median {valuation['mid']:,.0f} TND",
+        synth_rows = pd.DataFrame(
+            [
+                {"Axe": ax["axis"], "Pondération": f"{ax['weight']:.0%}", "Note": ax["note"]}
+                for ax in scorecard["axes"]
+            ]
         )
-        st.dataframe(
-            pd.DataFrame(
-                {
-                    "Method": list(valuation["methods"].keys()),
-                    "Value (TND)": [f"{value:,.0f}" for value in valuation["methods"].values()],
-                }
-            ),
+        st.dataframe(synth_rows, use_container_width=True, hide_index=True)
+
+        grid_payload = {**meta}
+        st.download_button(
+            "Télécharger la grille remplie (Excel)",
+            scoring_grid_excel(grid_payload, scorecard),
+            file_name=f"Grille_{(meta.get('name') or 'startup').replace(' ', '_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
-            hide_index=True,
         )
+        session["last_scorecard"] = scorecard
 
     with tabs[4]:
+        st.markdown("### Valorisation FMVA — Triangulation 5 méthodes")
+        st.caption(
+            "Berkus / Scorecard (Payne) / Risk Factor Summation / Venture Capital / Hybrid DCF "
+            "— pondérés en ensemble avec contrôle qualité (IQR > 60% = revue requise)."
+        )
+        if "fmva_inputs" not in session:
+            session["fmva_inputs"] = auto_fmva_inputs(
+                {"stage": 1, "team": 0.65, "market": 0.65, "product": 0.60,
+                 "competition": 0.50, "revenue_tnd": 0, "growth": 0.40,
+                 "is_labelled": False}
+            )
+        fmva = session["fmva_inputs"]
+
+        h1, h2 = st.columns(2)
+        fmva["baseline_usd"] = h1.number_input(
+            "Tunisia baseline pre-money (USD)",
+            min_value=100_000, max_value=20_000_000,
+            value=int(fmva.get("baseline_usd", TUNISIA_BASELINE_USD)),
+            step=100_000,
+        )
+        fmva["tnd_per_usd"] = h2.number_input(
+            "TND per USD", min_value=0.5, max_value=10.0,
+            value=float(fmva.get("tnd_per_usd", TND_PER_USD)), step=0.05,
+        )
+
+        with st.expander("Berkus — 5 factors × USD 500k max", expanded=False):
+            for factor in BERKUS_FACTORS:
+                fmva["berkus"][factor] = st.number_input(
+                    factor, min_value=0, max_value=500_000,
+                    value=int(fmva["berkus"].get(factor, 0)),
+                    step=25_000, key=f"berkus_{factor}",
+                )
+
+        with st.expander("Scorecard (Payne) — multipliers 0.5–1.5", expanded=False):
+            for factor in SCORECARD_WEIGHTS:
+                fmva["scorecard"][factor] = st.slider(
+                    f"{factor} (weight {SCORECARD_WEIGHTS[factor]:.0%})",
+                    0.5, 1.5, float(fmva["scorecard"].get(factor, 1.0)), 0.05,
+                    key=f"sc_{factor}",
+                )
+
+        with st.expander("Risk Factor Summation — 12 dimensions (-2 to +2)", expanded=False):
+            cols = st.columns(2)
+            for i, dim in enumerate(RFS_DIMENSIONS):
+                with cols[i % 2]:
+                    fmva["rfs"][dim] = st.slider(
+                        dim, -2, 2, int(fmva["rfs"].get(dim, 0)), 1,
+                        key=f"rfs_{dim}",
+                    )
+
+        with st.expander("Venture Capital Method", expanded=False):
+            v1, v2, v3 = st.columns(3)
+            fmva["vc"]["current_revenue_tnd"] = v1.number_input(
+                "Current revenue (TND)", min_value=0, max_value=50_000_000,
+                value=int(fmva["vc"].get("current_revenue_tnd", 850_000)), step=50_000,
+            )
+            fmva["vc"]["growth"] = v2.slider(
+                "Growth", 0.0, 2.0, float(fmva["vc"].get("growth", 0.5)), 0.05,
+                key="vc_growth",
+            )
+            fmva["vc"]["exit_year"] = v3.number_input(
+                "Exit year", min_value=2, max_value=10,
+                value=int(fmva["vc"].get("exit_year", 5)),
+            )
+            v4, v5, v6 = st.columns(3)
+            fmva["vc"]["exit_multiple"] = v4.slider(
+                "Exit revenue multiple", 1.0, 15.0,
+                float(fmva["vc"].get("exit_multiple", 4.5)), 0.5,
+            )
+            fmva["vc"]["target_return"] = v5.slider(
+                "Target VC return (x)", 2.0, 30.0,
+                float(fmva["vc"].get("target_return", 10.0)), 1.0,
+            )
+            fmva["vc"]["round_size_usd"] = v6.number_input(
+                "Round size (USD)", min_value=0, max_value=20_000_000,
+                value=int(fmva["vc"].get("round_size_usd", 500_000)), step=50_000,
+            )
+
+        with st.expander("Hybrid DCF — 5-year explicit + terminal multiple", expanded=False):
+            d1, d2, d3, d4 = st.columns(4)
+            fmva["dcf"]["starting_ebitda_tnd"] = d1.number_input(
+                "Starting EBITDA (TND)", min_value=0, max_value=20_000_000,
+                value=int(fmva["dcf"].get("starting_ebitda_tnd", 120_000)), step=20_000,
+            )
+            fmva["dcf"]["ebitda_growth"] = d2.slider(
+                "EBITDA growth", 0.0, 2.0,
+                float(fmva["dcf"].get("ebitda_growth", 0.45)), 0.05,
+                key="dcf_growth",
+            )
+            fmva["dcf"]["wacc"] = d3.slider(
+                "WACC", 0.05, 0.60, float(fmva["dcf"].get("wacc", 0.275)), 0.005,
+            )
+            fmva["dcf"]["terminal_multiple"] = d4.slider(
+                "Terminal multiple", 2.0, 15.0,
+                float(fmva["dcf"].get("terminal_multiple", 5.0)), 0.5,
+            )
+
+        result = fmva_valuation(fmva)
+        st.markdown("### Ensemble")
+        e1, e2, e3, e4 = st.columns(4)
+        e1.metric("Ensemble (USD)", f"${result['ensemble_usd']/1e6:.2f} M")
+        e2.metric("Ensemble (TND)", f"{result['ensemble_tnd']/1e6:.2f} M TND")
+        e3.metric("Low – High (USD)",
+                  f"${result['low_usd']/1e6:.2f}–${result['high_usd']/1e6:.2f} M")
+        e4.metric("IQR ratio", f"{result['iqr_ratio']:.0%}",
+                  "Review required" if result["review_flag"] else "OK")
+        if result["review_flag"]:
+            st.warning("Spread between methods exceeds 60% of the ensemble — review recommended.")
+        if not result["berkus_cap_ok"]:
+            st.warning("Berkus total exceeds the USD 2.5M cap — reduce one or more factors.")
+
+        rows = pd.DataFrame(
+            {
+                "Method": list(result["methods_usd"].keys()),
+                "USD": [f"${v:,.0f}" for v in result["methods_usd"].values()],
+                "TND": [f"{v:,.0f}" for v in result["methods_tnd"].values()],
+                "Weight": [f"{ENSEMBLE_WEIGHTS[m]:.0%}" for m in result["methods_usd"]],
+            }
+        )
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+
+        last = session.get("last_assessment") or {}
+        st.download_button(
+            "Télécharger le workbook FMVA (Excel)",
+            fmva_workbook_excel(last, fmva, result),
+            file_name=f"FMVA_{(last.get('name') or 'startup').replace(' ', '_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        session["last_fmva"] = result
+
+    with tabs[5]:
         st.markdown("### Model performance")
         m = bundle.metrics
         c1, c2, c3, c4 = st.columns(4)
@@ -1434,7 +2623,7 @@ def run_app() -> None:
             st.success(f"Stored {total} learning rows. Reloading model...")
             st.rerun()
 
-    with tabs[5]:
+    with tabs[6]:
         st.markdown("### Reports")
         st.download_button(
             "Download portfolio PDF",
