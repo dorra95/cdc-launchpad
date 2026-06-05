@@ -3559,6 +3559,113 @@ CDC_PROGRAMS: list[dict[str, Any]] = [
 ]
 
 
+def _svg_cover(seed_text: str, c1: str, c2: str, width: int = 600, height: int = 220) -> str:
+    """Generate a unique abstract SVG cover - never the same pattern twice."""
+    import hashlib
+
+    digest = hashlib.md5(seed_text.encode("utf-8")).hexdigest()
+    seed_int = int(digest[:8], 16)
+    pattern = seed_int % 6
+    rng = [int(digest[i:i+2], 16) for i in range(0, 32, 2)]
+
+    def r(i: int, lo: int, hi: int) -> int:
+        return lo + (rng[i % len(rng)] % max(1, (hi - lo + 1)))
+
+    parts: list[str] = [
+        f"<defs>"
+        f"<linearGradient id='g{seed_int}' x1='0%' y1='0%' x2='100%' y2='100%'>"
+        f"<stop offset='0%' stop-color='{c1}'/>"
+        f"<stop offset='100%' stop-color='{c2}'/>"
+        f"</linearGradient>"
+        f"</defs>"
+        f"<rect width='{width}' height='{height}' fill='url(#g{seed_int})'/>"
+    ]
+
+    if pattern == 0:
+        for i in range(7):
+            cx = r(i, 0, width)
+            cy = r(i + 1, 0, height)
+            cr = r(i + 2, 20, 90)
+            op = (40 + r(i + 3, 0, 30)) / 100
+            parts.append(
+                f"<circle cx='{cx}' cy='{cy}' r='{cr}' "
+                f"fill='white' fill-opacity='{op:.2f}'/>"
+            )
+    elif pattern == 1:
+        for i in range(5):
+            y = r(i, 20, height - 20)
+            amp = r(i + 1, 8, 26)
+            phase = r(i + 2, 0, 100) / 100
+            path = f"M0,{y} "
+            for x in range(0, width + 20, 20):
+                yy = y + int(amp * math.sin(phase + x / 40))
+                path += f"L{x},{yy} "
+            parts.append(
+                f"<path d='{path}' stroke='white' stroke-opacity='0.35' "
+                f"stroke-width='2' fill='none'/>"
+            )
+    elif pattern == 2:
+        cols = 9
+        rows = 4
+        cw = width / cols
+        rh = height / rows
+        for i in range(cols * rows):
+            if rng[i % len(rng)] % 3 == 0:
+                gx = (i % cols) * cw
+                gy = (i // cols) * rh
+                op = (15 + (rng[i % len(rng)] % 25)) / 100
+                parts.append(
+                    f"<rect x='{gx:.1f}' y='{gy:.1f}' width='{cw:.1f}' height='{rh:.1f}' "
+                    f"fill='white' fill-opacity='{op:.2f}'/>"
+                )
+    elif pattern == 3:
+        nodes = []
+        for i in range(8):
+            nx = r(i, 30, width - 30)
+            ny = r(i + 4, 25, height - 25)
+            nodes.append((nx, ny))
+        for i, (nx, ny) in enumerate(nodes):
+            for j in range(i + 1, len(nodes)):
+                if (rng[(i * 7 + j) % len(rng)] % 3) == 0:
+                    parts.append(
+                        f"<line x1='{nx}' y1='{ny}' x2='{nodes[j][0]}' y2='{nodes[j][1]}' "
+                        f"stroke='white' stroke-opacity='0.25' stroke-width='1'/>"
+                    )
+            parts.append(
+                f"<circle cx='{nx}' cy='{ny}' r='4' fill='white' fill-opacity='0.85'/>"
+            )
+    elif pattern == 4:
+        n_bars = 14
+        base_y = int(height * 0.78)
+        bw = width / n_bars - 4
+        for i in range(n_bars):
+            bh = 20 + (rng[(i * 3) % len(rng)] % int(height * 0.5))
+            bx = i * (bw + 4) + 6
+            op = (30 + (rng[(i * 5) % len(rng)] % 35)) / 100
+            parts.append(
+                f"<rect x='{bx:.1f}' y='{base_y - bh}' width='{bw:.1f}' height='{bh}' "
+                f"fill='white' fill-opacity='{op:.2f}' rx='2'/>"
+            )
+    else:
+        for i in range(10):
+            x1 = r(i, 0, width)
+            y1 = r(i + 1, 0, height)
+            x2 = r(i + 2, 0, width)
+            y2 = r(i + 3, 0, height)
+            op = (15 + (rng[i % len(rng)] % 25)) / 100
+            parts.append(
+                f"<path d='M{x1},{y1} Q{width//2},{r(i+4,0,height)} {x2},{y2}' "
+                f"stroke='white' stroke-opacity='{op:.2f}' stroke-width='1.5' fill='none'/>"
+            )
+
+    return (
+        f"<svg viewBox='0 0 {width} {height}' xmlns='http://www.w3.org/2000/svg' "
+        f"preserveAspectRatio='xMidYMid slice' style='width:100%;height:100%;display:block'>"
+        f"{''.join(parts)}"
+        f"</svg>"
+    )
+
+
 def _render_programs_tab(lang: str) -> None:
     import streamlit as st
 
@@ -3591,9 +3698,11 @@ def _render_programs_tab(lang: str) -> None:
         hl_html = "".join(f"<li>{h}</li>" for h in highlights)
         labels = ("Budget", "Periode", "Stade") if is_fr else ("Budget", "Period", "Stage")
         cta = "Ouvrir la source" if is_fr else "Open source"
+        svg = _svg_cover(prog["name"] + prog["operator"], c1, c2, 600, 200)
         cards_html.append(
             f"<div class='prog-card'>"
-            f"  <div class='prog-cover' style='background:linear-gradient(135deg,{c1},{c2})'>"
+            f"  <div class='prog-cover'>"
+            f"    <div class='prog-cover-svg'>{svg}</div>"
             f"    <div class='prog-name'>{prog['name']}</div>"
             f"    <div class='prog-op'>{prog['operator']}</div>"
             f"  </div>"
@@ -3773,9 +3882,11 @@ def _render_newsroom_tab(lang: str) -> None:
         summary = art["summary_fr"] if is_fr else art["summary_en"]
         date_str = _fmt_date(art["date"], lang)
         read_cta = "Lire la source" if is_fr else "Read the source"
+        svg = _svg_cover(art["title_en"] + art["source"] + art["date"], c1, c2, 600, 160)
         cards_html.append(
             f"<div class='news-card'>"
-            f"  <div class='news-cover' style='background:linear-gradient(135deg,{c1},{c2})'>"
+            f"  <div class='news-cover'>"
+            f"    <div class='news-cover-svg'>{svg}</div>"
             f"    <span class='news-tag'>{art['tag']}</span>"
             f"    <span class='news-date'>{date_str}</span>"
             f"  </div>"
@@ -4168,7 +4279,14 @@ def _inject_css() -> None:
         }}
         .prog-cover {{
             padding: 1rem 1.1rem; color:white; position: relative;
+            overflow: hidden; min-height: 92px;
         }}
+        .prog-cover-svg, .news-cover-svg {{
+            position: absolute; inset: 0; z-index: 0; pointer-events: none;
+            opacity: 0.95;
+        }}
+        .prog-cover > *:not(.prog-cover-svg) {{ position: relative; z-index: 2; }}
+        .news-cover > *:not(.news-cover-svg) {{ position: relative; z-index: 2; }}
         .prog-cover::after {{
             content:''; position:absolute; inset:0;
             background: radial-gradient(220px 110px at 90% 20%, rgba(255,255,255,0.22), transparent 60%);
