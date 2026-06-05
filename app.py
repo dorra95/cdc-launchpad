@@ -3285,6 +3285,19 @@ def plotly_tunisia_map(
         ),
     ))
     if dimension == "sector_mix":
+        # Halo around the top-3 governorates by startup count
+        top3 = plot_df.nlargest(3, "count")
+        if not top3.empty:
+            fig.add_trace(go.Scattergeo(
+                lon=top3["lon"], lat=top3["lat"],
+                mode="markers",
+                marker=dict(
+                    size=top3["size"] * 1.9, color="rgba(0,0,0,0)",
+                    line=dict(color=RED, width=2.5),
+                    opacity=0.75,
+                ),
+                hoverinfo="skip", showlegend=False,
+            ))
         for s, c in sector_to_color.items():
             fig.add_trace(go.Scattergeo(
                 lon=[None], lat=[None], mode="markers",
@@ -3699,12 +3712,24 @@ def _render_programs_tab(lang: str) -> None:
         labels = ("Budget", "Periode", "Stade") if is_fr else ("Budget", "Period", "Stage")
         cta = "Ouvrir la source" if is_fr else "Open source"
         svg = _svg_cover(prog["name"] + prog["operator"], c1, c2, 600, 200)
+        # Per-programme indicative metrics (3 mini-stats derived from public facts)
+        metric_labels_fr = ("Partenaires", "Stade", "Budget")
+        metric_labels_en = ("Partners", "Stage", "Budget")
+        m_labels = metric_labels_fr if is_fr else metric_labels_en
+        m_values = (str(len(prog["partners"])),
+                    prog["stage"].split(",")[0].strip()[:14],
+                    prog["budget"].split(",")[0].strip()[:14])
+        metrics_html = "".join(
+            f"<div class='prog-stat'><span class='l'>{lbl}</span><span class='v'>{val}</span></div>"
+            for lbl, val in zip(m_labels, m_values)
+        )
         cards_html.append(
             f"<div class='prog-card'>"
             f"  <div class='prog-cover'>"
             f"    <div class='prog-cover-svg'>{svg}</div>"
             f"    <div class='prog-name'>{prog['name']}</div>"
             f"    <div class='prog-op'>{prog['operator']}</div>"
+            f"    <div class='prog-stats'>{metrics_html}</div>"
             f"  </div>"
             f"  <div class='prog-body'>"
             f"    <p class='prog-summary'>{summary}</p>"
@@ -3964,6 +3989,30 @@ def _inject_css() -> None:
             content:''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
             background: linear-gradient(180deg, {NAVY} 0%, {RED} 100%);
         }}
+        .cdc-status {{
+            position: absolute; top: 14px; right: 18px; z-index: 3;
+            display: inline-flex; align-items: center; gap: 0.5rem;
+            background: rgba(255,255,255,0.95);
+            border: 1px solid #EFF1F6;
+            color: {INK};
+            padding: 0.32rem 0.7rem; border-radius: 999px;
+            font-size: 0.74rem; font-weight: 700; letter-spacing: 0.2px;
+            box-shadow: 0 10px 26px -16px rgba(39,46,95,0.35);
+        }}
+        .cdc-status .dot {{
+            width: 8px; height: 8px; border-radius: 50%;
+            background: {GREEN};
+            box-shadow: 0 0 0 0 rgba(34,122,74,0.6);
+            animation: cdcPulse 1.8s ease-out infinite;
+        }}
+        .cdc-status .sep {{ opacity: 0.4; }}
+        .cdc-status .v {{ color: {NAVY}; }}
+        @keyframes cdcPulse {{
+            0%   {{ box-shadow: 0 0 0 0 rgba(34,122,74,0.55); }}
+            70%  {{ box-shadow: 0 0 0 10px rgba(34,122,74,0); }}
+            100% {{ box-shadow: 0 0 0 0 rgba(34,122,74,0); }}
+        }}
+        @media (max-width: 720px) {{ .cdc-status {{ display: none; }} }}
         /* Animated title */
         .cdc-title-anim {{
             font-size: clamp(2rem, 4.2vw, 3.4rem);
@@ -4382,6 +4431,22 @@ def _inject_css() -> None:
         .prog-op {{
             font-size: 0.78rem; opacity: 0.88; margin-top: 0.15rem; position: relative; z-index: 2;
         }}
+        .prog-stats {{
+            position: relative; z-index: 2;
+            display:grid; grid-template-columns: repeat(3,1fr); gap: 0.3rem;
+            margin-top: 0.55rem;
+        }}
+        .prog-stat {{
+            background: rgba(0,0,0,0.18); border-radius: 8px;
+            padding: 0.32rem 0.45rem;
+            display:flex; flex-direction:column; gap: 0.05rem;
+            backdrop-filter: blur(4px);
+        }}
+        .prog-stat .l {{
+            font-size: 0.62rem; opacity: 0.82; letter-spacing: 0.3px;
+            text-transform: uppercase;
+        }}
+        .prog-stat .v {{ font-size: 0.85rem; font-weight: 800; color: white; line-height: 1.1; }}
         .prog-body {{
             padding: 0.85rem 1.1rem 1rem 1.1rem;
             display:flex; flex-direction:column; gap: 0.55rem; flex:1;
@@ -4533,7 +4598,7 @@ HERO_QUOTES_FR: list[tuple[str, str, str]] = [
 ]
 
 
-def _header(lang: str) -> None:
+def _header(lang: str, status_pill: str = "") -> None:
     import base64
     import streamlit as st
 
@@ -4579,6 +4644,7 @@ def _header(lang: str) -> None:
     st.markdown(
         f"""
         <div class="cdc-hero">
+            {status_pill}
             <div class="cdc-hero-row">
                 <div class="cdc-hero-logo">{media_html}</div>
                 <div>
@@ -4689,7 +4755,36 @@ def run_app() -> None:
         )
 
     lang = session.lang
-    _header(lang)
+    is_fr_st = (lang == "FR")
+    store_rows = 0
+    try:
+        if os.path.exists(STORE_FILE):
+            store_rows = len(pd.read_csv(STORE_FILE))
+    except Exception:
+        store_rows = 0
+    scored_today = 1 if session.get("last_assessment") else 0
+    label_ready = "Moteur pret" if is_fr_st else "Engine ready"
+    label_scored = (
+        f"{scored_today} cas score aujourd'hui" if is_fr_st
+        else f"{scored_today} case scored today"
+    )
+    label_loop = (
+        f"{store_rows} lignes en boucle" if is_fr_st
+        else f"{store_rows} loop rows"
+    )
+    status_pill_html = (
+        f"<div class='cdc-status'>"
+        f"<span class='dot'></span>"
+        f"<span>{label_ready}</span>"
+        f"<span class='sep'>|</span>"
+        f"<span class='v'>{label_scored}</span>"
+        f"<span class='sep'>|</span>"
+        f"<span class='v'>{label_loop}</span>"
+        f"<span class='sep'>|</span>"
+        f"<span class='v'>v1.8</span>"
+        f"</div>"
+    )
+    _header(lang, status_pill=status_pill_html)
 
     if not session.auth:
         st.markdown(
@@ -5242,10 +5337,17 @@ def run_app() -> None:
                 )
 
     with inner_tabs[1]:
-        st.markdown("### Grille de scoring - VAIR Greentech")
+        is_fr_cm = (lang == "FR")
+        st.markdown(
+            "### " + ("VAIR scoring grid - move the sliders, watch the verdict" if not is_fr_cm
+                      else "Grille VAIR - bougez les curseurs, voyez le verdict")
+        )
         st.caption(
-            "Auto-prerempli depuis l'evaluation. Les membres du comite ajustent chaque "
-            "critere (0-5), la note d'axe et la note globale sont recalculees en direct."
+            "Auto-rempli depuis l'evaluation. Bougez les curseurs : la note d'axe et "
+            "la note globale recalculent en temps reel, la recommandation aussi."
+            if is_fr_cm
+            else "Auto-filled from the assessment. Move the sliders - axis notes, "
+                 "global note and the recommendation refresh live."
         )
         if "scoring_inputs" not in session:
             session["scoring_inputs"] = auto_score_grid(
@@ -5360,10 +5462,17 @@ def run_app() -> None:
         session["last_scorecard"] = scorecard
 
     with inner_tabs[2]:
-        st.markdown("### Valorisation - Triangulation 5 methodes")
+        is_fr_va = (lang == "FR")
+        st.markdown(
+            "### " + ("Valuation - five methods, one verdict" if not is_fr_va
+                      else "Valorisation - cinq methodes, un verdict")
+        )
         st.caption(
-            "Berkus / Scorecard (Payne) / Risk Factor Summation / Venture Capital / Hybrid DCF "
-            "- ponderes en ensemble avec controle qualite (IQR > 60% = revue requise)."
+            "Berkus, Scorecard (Payne), Risk Factor Summation, VC Method, Hybrid DCF. "
+            "Pondere en ensemble. Spread > 60% = on stresse les hypotheses avant decision."
+            if is_fr_va
+            else "Berkus, Scorecard (Payne), Risk Factor Summation, VC Method, Hybrid DCF. "
+                 "Ensembled. Spread > 60% = stress the assumptions before any decision."
         )
         if "fmva_inputs" not in session:
             session["fmva_inputs"] = auto_fmva_inputs(
