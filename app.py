@@ -4237,6 +4237,91 @@ def _inject_css() -> None:
             color: {RED} !important;
         }}
         div[data-testid="stMetricValue"] {{ color: {NAVY}; }}
+        /* Entrance animations - staggered fade-up for grid children */
+        @keyframes cdcRise {{
+            0% {{ opacity: 0; transform: translateY(14px) scale(0.985); }}
+            100% {{ opacity: 1; transform: translateY(0) scale(1); }}
+        }}
+        @keyframes cdcPop {{
+            0% {{ opacity: 0; transform: scale(0.85); filter: blur(2px); }}
+            70% {{ opacity: 1; transform: scale(1.06); filter: blur(0); }}
+            100% {{ opacity: 1; transform: scale(1); }}
+        }}
+        @keyframes cdcShimmer {{
+            0% {{ background-position: -240% 0; }}
+            100% {{ background-position: 240% 0; }}
+        }}
+        .kpi-strip > .kpi {{
+            animation: cdcRise 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }}
+        .kpi-strip > .kpi:nth-child(1) {{ animation-delay: 40ms; }}
+        .kpi-strip > .kpi:nth-child(2) {{ animation-delay: 110ms; }}
+        .kpi-strip > .kpi:nth-child(3) {{ animation-delay: 180ms; }}
+        .kpi-strip > .kpi:nth-child(4) {{ animation-delay: 250ms; }}
+        .kpi-strip > .kpi:nth-child(5) {{ animation-delay: 320ms; }}
+        .kpi-strip > .kpi:nth-child(6) {{ animation-delay: 390ms; }}
+        .kpi-value {{
+            animation: cdcPop 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+            animation-delay: 350ms;
+        }}
+        .alaune-grid > .alaune, .prog-grid > .prog-card, .news-grid > .news-card,
+        .spot-grid > .spot {{
+            animation: cdcRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }}
+        .alaune-grid > *:nth-child(1), .prog-grid > *:nth-child(1),
+        .news-grid > *:nth-child(1), .spot-grid > *:nth-child(1) {{ animation-delay: 60ms; }}
+        .alaune-grid > *:nth-child(2), .prog-grid > *:nth-child(2),
+        .news-grid > *:nth-child(2), .spot-grid > *:nth-child(2) {{ animation-delay: 140ms; }}
+        .alaune-grid > *:nth-child(3), .prog-grid > *:nth-child(3),
+        .news-grid > *:nth-child(3), .spot-grid > *:nth-child(3) {{ animation-delay: 220ms; }}
+        .alaune-grid > *:nth-child(4), .prog-grid > *:nth-child(4),
+        .news-grid > *:nth-child(4), .spot-grid > *:nth-child(4) {{ animation-delay: 300ms; }}
+        .alaune-grid > *:nth-child(5), .prog-grid > *:nth-child(5),
+        .news-grid > *:nth-child(5) {{ animation-delay: 380ms; }}
+        .alaune-grid > *:nth-child(6), .prog-grid > *:nth-child(6),
+        .news-grid > *:nth-child(6) {{ animation-delay: 460ms; }}
+        /* Skeleton shimmer (for slow loads / placeholders) */
+        .cdc-skel {{
+            background: linear-gradient(90deg, #F3F4F8 0%, #E9EBF1 40%, #F3F4F8 80%);
+            background-size: 240% 100%;
+            animation: cdcShimmer 1.4s linear infinite;
+            border-radius: 10px;
+            min-height: 92px;
+        }}
+        .skel-strip {{
+            display:grid; grid-template-columns: repeat(auto-fit, minmax(170px,1fr));
+            gap:0.7rem;
+        }}
+        /* Empty-state card */
+        .empty-state {{
+            background: #FFFFFF; border: 1px dashed #E5E7EB; border-radius: 14px;
+            padding: 1.4rem 1.6rem; text-align: center; color: {INK};
+            box-shadow: 0 14px 30px -22px rgba(39,46,95,0.20);
+        }}
+        .empty-state .badge-em {{
+            display:inline-block; padding: 0.25rem 0.7rem; border-radius: 999px;
+            background: linear-gradient(135deg, {NAVY}, {RED}); color: white;
+            font-size: 0.72rem; font-weight: 800; letter-spacing: 0.3px;
+            margin-bottom: 0.6rem;
+        }}
+        .empty-state h4 {{ margin: 0 0 0.3rem 0; color:{NAVY}; font-size: 1.05rem; }}
+        .empty-state p {{ margin: 0; color:{MUTED}; font-size: 0.88rem; line-height: 1.45; }}
+        .empty-state .em-cta {{
+            display:inline-block; margin-top: 0.7rem;
+            background: linear-gradient(135deg, {NAVY}, #1B2150); color: white;
+            padding: 0.45rem 0.95rem; border-radius: 8px; font-weight: 700; font-size: 0.85rem;
+            text-decoration: none; border: 1px solid {NAVY};
+        }}
+        /* Quote panel upgrade */
+        .cdc-quote-wrap::before {{
+            content: '\\201C'; position: absolute; left: -4px; top: 0;
+            font-family: Georgia, serif; font-size: 3.2rem; line-height: 1;
+            color: {RED}; opacity: 0.18;
+        }}
+        .cdc-quote .text {{ font-size: 1.05rem; }}
+        /* Sidebar polish */
+        section[data-testid="stSidebar"] .stRadio label {{ font-weight: 700; color: {NAVY}; }}
+        section[data-testid="stSidebar"] hr {{ border-color: #EFF1F6 !important; }}
         /* 3D depth + tilt on hover (cards) */
         .kpi, .alaune, .prog-card, .news-card, .spot, .pf {{
             transform-style: preserve-3d;
@@ -5571,18 +5656,27 @@ def run_app() -> None:
                     key="dl_financial_pdf",
                 )
         else:
-            st.info(
-                "Format attendu : colonne A = libelles, colonnes B+ = annees. "
-                "Les libelles reconnus incluent : revenue/chiffre d'affaires, COGS, gross profit, "
-                "OpEx, EBITDA, EBIT, net income, interest expense, depreciation, total assets, "
-                "current assets, cash, receivables, inventory, current liabilities, total liabilities, "
-                "equity, long-term debt."
-                if is_fr
-                else "Expected format: column A = labels, columns B+ = years. Recognised labels "
-                     "include: revenue, COGS, gross profit, OpEx, EBITDA, EBIT, net income, "
-                     "interest expense, depreciation, total assets, current assets, cash, "
-                     "receivables, inventory, current liabilities, total liabilities, equity, "
-                     "long-term debt."
+            badge = "Vault empty" if not is_fr else "Vault vide"
+            head = "Drop the financials. We do the rest." if not is_fr else "Deposez les etats financiers. On fait le reste."
+            body_msg = (
+                "Column A = labels. Columns B+ = years. We recognise the usual lines: "
+                "revenue, COGS, gross profit, OpEx, EBITDA, EBIT, net income, interest "
+                "expense, depreciation, total assets, current assets, cash, receivables, "
+                "inventory, current liabilities, total liabilities, equity, long-term debt."
+                if not is_fr
+                else "Colonne A = libelles. Colonnes B+ = annees. Lignes reconnues : "
+                     "chiffre d'affaires, COGS, marge brute, OpEx, EBITDA, EBIT, resultat "
+                     "net, charges financieres, amortissement, total actif, actif circulant, "
+                     "tresorerie, creances, stocks, passif circulant, total passif, "
+                     "capitaux propres, dette long terme."
+            )
+            st.markdown(
+                f"<div class='empty-state'>"
+                f"<span class='badge-em'>{badge}</span>"
+                f"<h4>{head}</h4>"
+                f"<p>{body_msg}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
             )
 
     with inner_tabs[4]:
@@ -5665,9 +5759,28 @@ def run_app() -> None:
         fmva_result = session.get("last_fmva")
 
         if not last:
-            st.info(
-                "Lancez d'abord une evaluation dans l'onglet Assessment pour generer "
-                "tous les rapports. Le rapport portefeuille reste disponible ci-dessous."
+            badge_r = "Drop zone empty" if not is_fr_r else "Drop zone vide"
+            head_r = (
+                "Score a dossier first. Reports build themselves."
+                if not is_fr_r
+                else "Lancez d'abord un scoring. Les rapports se construisent tout seuls."
+            )
+            body_r = (
+                "Once an assessment runs, the Assessment, Committee, Valuation and "
+                "Financial-diligence PDFs + Excels appear here, branded and ready to ship. "
+                "The Portfolio PDF is always one click away below."
+                if not is_fr_r
+                else "Apres un scoring, les PDF + Excels d'Evaluation, Comite, Valorisation "
+                     "et Diligence financiere s'empilent ici, brandes et prets a envoyer. "
+                     "Le PDF portefeuille reste accessible ci-dessous."
+            )
+            st.markdown(
+                f"<div class='empty-state'>"
+                f"<span class='badge-em'>{badge_r}</span>"
+                f"<h4>{head_r}</h4>"
+                f"<p>{body_r}</p>"
+                f"</div>",
+                unsafe_allow_html=True,
             )
 
         slug = (last.get("name") if last else "startup").replace(" ", "_") or "startup"
