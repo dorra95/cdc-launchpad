@@ -2541,6 +2541,424 @@ def fmva_pdf(
     return buffer
 
 
+# ---------------------------------------------------------------------------
+# Financial-statement analyser - parses an uploaded P&L / balance sheet
+# and produces a structured investment memo.
+# ---------------------------------------------------------------------------
+FIN_KEYWORDS: dict[str, list[str]] = {
+    "revenue": ["revenue", "sales", "chiffre d'affaires", "ca net", "turnover", "produit"],
+    "cogs": ["cogs", "cost of goods", "cost of sales", "cout des ventes", "achats consommes"],
+    "gross_profit": ["gross profit", "marge brute"],
+    "opex": ["operating expenses", "opex", "charges d'exploitation", "operating cost"],
+    "ebitda": ["ebitda"],
+    "ebit": ["ebit", "operating income", "resultat d'exploitation"],
+    "net_income": ["net income", "net profit", "resultat net", "benefice net"],
+    "interest_expense": ["interest expense", "charges financieres", "interest paid"],
+    "tax": ["income tax", "impot sur les benefices", "impot societes"],
+    "depreciation": ["depreciation", "amortissement", "amortization"],
+    "total_assets": ["total assets", "total actif"],
+    "current_assets": ["current assets", "actif circulant", "actif courant"],
+    "cash": ["cash and equivalents", "cash", "tresorerie", "disponibilites"],
+    "receivables": ["accounts receivable", "creances clients", "trade receivables"],
+    "inventory": ["inventory", "stocks", "inventaire"],
+    "current_liabilities": ["current liabilities", "passif circulant", "passif courant", "dettes court terme"],
+    "total_liabilities": ["total liabilities", "total passif", "dettes totales"],
+    "equity": ["total equity", "shareholders equity", "capitaux propres", "fonds propres"],
+    "long_term_debt": ["long term debt", "dettes long terme", "dettes financieres", "non current debt"],
+}
+
+
+def parse_financial_statement(file_bytes: bytes, filename: str) -> dict[str, Any]:
+    """Read an uploaded financial statement and extract the most recent year's values."""
+    name = filename.lower()
+    bio = io.BytesIO(file_bytes)
+    if name.endswith((".xls", ".xlsx", ".xlsm")):
+        try:
+            df = pd.read_excel(bio, header=None)
+        except Exception:
+            return {"ok": False, "error": "Excel illisible. Verifier le format."}
+    elif name.endswith(".csv"):
+        try:
+            df = pd.read_csv(bio, header=None, sep=None, engine="python")
+        except Exception:
+            return {"ok": False, "error": "CSV illisible."}
+    else:
+        return {"ok": False, "error": "Format non supporte (utiliser xlsx ou csv)."}
+
+    # Drop fully empty rows/cols
+    df = df.dropna(axis=0, how="all").dropna(axis=1, how="all").reset_index(drop=True)
+    if df.empty:
+        return {"ok": False, "error": "Fichier vide."}
+
+    # The label column is the first column with mostly strings, the numeric columns are the rest.
+    label_col_idx = 0
+    for col in df.columns:
+        vals = df[col].astype(str).str.lower()
+        if vals.apply(lambda v: any(ch.isalpha() for ch in v)).sum() > len(df) // 2:
+            label_col_idx = col
+            break
+
+    extracted: dict[str, float] = {}
+    label_series = df[label_col_idx].astype(str).str.lower()
+    for row_i, label in enumerate(label_series):
+        norm = re.sub(r"[^a-z0-9 ]+", " ", label).strip()
+        for key, kws in FIN_KEYWORDS.items():
+            if key in extracted:
+                continue
+            for kw in kws:
+                if kw in norm:
+                    numeric_cells: list[float] = []
+                    for col in df.columns:
+                        if col == label_col_idx:
+                            continue
+                        val = _money_to_float(df.iloc[row_i][col])
+                        if not pd.isna(val):
+                            numeric_cells.append(val)
+                    if numeric_cells:
+                        extracted[key] = numeric_cells[-1]
+                    break
+
+    if not extracted:
+        return {"ok": False, "error": "Aucune ligne reconnue. Renommer les libelles selon les standards."}
+
+    # Fill derivations
+    if "gross_profit" not in extracted and "revenue" in extracted and "cogs" in extracted:
+        extracted["gross_profit"] = extracted["revenue"] - abs(extracted["cogs"])
+    if "ebit" not in extracted and "ebitda" in extracted and "depreciation" in extracted:
+        extracted["ebit"] = extracted["ebitda"] - abs(extracted["depreciation"])
+
+    return {"ok": True, "extracted": extracted, "n_rows": int(len(df))}
+
+
+def _safe_div(num: float, den: float) -> float | None:
+    if den is None or den == 0 or pd.isna(den):
+        return None
+    return num / den
+
+
+def compute_financial_ratios(data: dict[str, float]) -> dict[str, dict[str, Any]]:
+    """Return a dict {ratio_name: {value, flag, label, explanation}}."""
+    revenue = data.get("revenue", 0.0)
+    gp = data.get("gross_profit")
+    ebitda = data.get("ebitda")
+    ebit = data.get("ebit")
+    ni = data.get("net_income")
+    interest = abs(data.get("interest_expense", 0.0))
+    total_assets = data.get("total_assets")
+    current_assets = data.get("current_assets")
+    cash = data.get("cash")
+    inventory = data.get("inventory", 0.0)
+    current_liab = data.get("current_liabilities")
+    total_liab = data.get("total_liabilities")
+    equity = data.get("equity")
+    lt_debt = data.get("long_term_debt", 0.0)
+
+    def flag(v: float | None, good: float, warn: float, higher_is_better: bool = True) -> str:
+        if v is None or pd.isna(v):
+            return "na"
+        if higher_is_better:
+            if v >= good: return "ok"
+            if v >= warn: return "warn"
+            return "bad"
+        else:
+            if v <= good: return "ok"
+            if v <= warn: return "warn"
+            return "bad"
+
+    gm = _safe_div(gp, revenue) if gp is not None else None
+    em = _safe_div(ebitda, revenue) if ebitda is not None else None
+    nm = _safe_div(ni, revenue) if ni is not None else None
+    roa = _safe_div(ni, total_assets) if (ni is not None and total_assets) else None
+    roe = _safe_div(ni, equity) if (ni is not None and equity) else None
+    current = _safe_div(current_assets, current_liab) if (current_assets and current_liab) else None
+    quick = (
+        _safe_div((current_assets or 0) - inventory, current_liab)
+        if (current_assets and current_liab) else None
+    )
+    cash_r = _safe_div(cash, current_liab) if (cash is not None and current_liab) else None
+    de = _safe_div((lt_debt + (total_liab or 0) - (current_liab or 0) if total_liab else lt_debt),
+                   equity) if equity else None
+    debt_to_assets = _safe_div(total_liab, total_assets) if (total_liab and total_assets) else None
+    int_cov = _safe_div(ebit, interest) if (ebit is not None and interest) else None
+    asset_turn = _safe_div(revenue, total_assets) if total_assets else None
+
+    return {
+        "Marge brute": {
+            "value": gm, "fmt": "pct",
+            "flag": flag(gm, 0.35, 0.20),
+            "explanation": "Capacite de la startup a transformer chaque dinar de CA en marge avant frais d'exploitation.",
+        },
+        "Marge EBITDA": {
+            "value": em, "fmt": "pct",
+            "flag": flag(em, 0.15, 0.05),
+            "explanation": "Rentabilite operationnelle apres charges d'exploitation, hors elements financiers et fiscaux.",
+        },
+        "Marge nette": {
+            "value": nm, "fmt": "pct",
+            "flag": flag(nm, 0.10, 0.0),
+            "explanation": "Resultat net rapporte au chiffre d'affaires - rentabilite finale apres impots.",
+        },
+        "ROA": {
+            "value": roa, "fmt": "pct",
+            "flag": flag(roa, 0.08, 0.02),
+            "explanation": "Rendement des actifs - efficacite d'utilisation du bilan pour generer du resultat.",
+        },
+        "ROE": {
+            "value": roe, "fmt": "pct",
+            "flag": flag(roe, 0.15, 0.05),
+            "explanation": "Rendement des fonds propres - effet de levier financier et rentabilite pour l'actionnaire.",
+        },
+        "Current ratio": {
+            "value": current, "fmt": "x",
+            "flag": flag(current, 1.5, 1.0),
+            "explanation": "Liquidite generale - couverture des dettes court terme par l'actif circulant.",
+        },
+        "Quick ratio": {
+            "value": quick, "fmt": "x",
+            "flag": flag(quick, 1.0, 0.7),
+            "explanation": "Liquidite restrictive (hors stocks) - capacite a payer le passif court terme rapidement.",
+        },
+        "Cash ratio": {
+            "value": cash_r, "fmt": "x",
+            "flag": flag(cash_r, 0.5, 0.2),
+            "explanation": "Liquidite stricte - tresorerie / passif court terme.",
+        },
+        "Dette / Fonds propres": {
+            "value": de, "fmt": "x",
+            "flag": flag(de, 1.0, 2.0, higher_is_better=False),
+            "explanation": "Levier financier - dettes financieres rapportees aux capitaux propres.",
+        },
+        "Dette / Actif total": {
+            "value": debt_to_assets, "fmt": "pct",
+            "flag": flag(debt_to_assets, 0.40, 0.60, higher_is_better=False),
+            "explanation": "Poids global de l'endettement dans le bilan.",
+        },
+        "Couverture interets": {
+            "value": int_cov, "fmt": "x",
+            "flag": flag(int_cov, 3.0, 1.5),
+            "explanation": "EBIT / charges financieres - capacite de servir la dette par le resultat operationnel.",
+        },
+        "Rotation actifs": {
+            "value": asset_turn, "fmt": "x",
+            "flag": flag(asset_turn, 1.0, 0.4),
+            "explanation": "Chiffre d'affaires / actif total - intensite d'utilisation du bilan.",
+        },
+    }
+
+
+def _format_ratio(value: float | None, fmt: str) -> str:
+    if value is None or pd.isna(value):
+        return "n/d"
+    if fmt == "pct":
+        return f"{value*100:.1f}%"
+    return f"{value:.2f}x"
+
+
+def financial_memo(data: dict[str, float], ratios: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Generate an argued investment memo: thesis, strengths, risks, recommendation."""
+    score = 0
+    weight_sum = 0
+    weights = {
+        "Marge brute": 2.0, "Marge EBITDA": 3.0, "Marge nette": 2.0,
+        "ROA": 1.5, "ROE": 1.5,
+        "Current ratio": 1.5, "Quick ratio": 1.5, "Cash ratio": 1.0,
+        "Dette / Fonds propres": 1.5, "Dette / Actif total": 1.0,
+        "Couverture interets": 2.0, "Rotation actifs": 1.0,
+    }
+    for name, r in ratios.items():
+        if r["flag"] == "na":
+            continue
+        w = weights.get(name, 1.0)
+        weight_sum += w
+        if r["flag"] == "ok":
+            score += w * 1.0
+        elif r["flag"] == "warn":
+            score += w * 0.5
+    health = (score / weight_sum) if weight_sum else 0.0
+
+    strengths = [f"{n} : {_format_ratio(r['value'], r['fmt'])}"
+                 for n, r in ratios.items() if r["flag"] == "ok"]
+    risks = [f"{n} : {_format_ratio(r['value'], r['fmt'])}"
+             for n, r in ratios.items() if r["flag"] == "bad"]
+    watch = [f"{n} : {_format_ratio(r['value'], r['fmt'])}"
+             for n, r in ratios.items() if r["flag"] == "warn"]
+
+    rev = data.get("revenue", 0.0)
+    thesis: list[str] = []
+    if rev > 0:
+        thesis.append(
+            f"Activite generant {rev:,.0f} de chiffre d'affaires sur le dernier "
+            "exercice rapporte."
+        )
+    em = ratios["Marge EBITDA"]["value"]
+    if em is not None:
+        if em >= 0.15:
+            thesis.append(f"Marge EBITDA de {em*100:.1f}% indique une rentabilite operationnelle solide.")
+        elif em >= 0:
+            thesis.append(f"Marge EBITDA de {em*100:.1f}% confirme une rentabilite operationnelle naissante.")
+        else:
+            thesis.append(f"EBITDA negatif ({em*100:.1f}%) - rentabilite operationnelle non encore atteinte.")
+    cur = ratios["Current ratio"]["value"]
+    if cur is not None:
+        if cur >= 1.5:
+            thesis.append(f"Liquidite confortable (current ratio {cur:.2f}x).")
+        elif cur >= 1.0:
+            thesis.append(f"Liquidite juste (current ratio {cur:.2f}x), a surveiller.")
+        else:
+            thesis.append(f"Risque de liquidite (current ratio {cur:.2f}x).")
+    de = ratios["Dette / Fonds propres"]["value"]
+    if de is not None:
+        if de <= 1.0:
+            thesis.append(f"Structure capitalistique saine (D/E {de:.2f}x).")
+        elif de <= 2.0:
+            thesis.append(f"Levier modere (D/E {de:.2f}x), gerable.")
+        else:
+            thesis.append(f"Levier eleve (D/E {de:.2f}x) - risque de service de la dette.")
+
+    if health >= 0.7:
+        action = "INVESTIR"
+        tone = "ok"
+        color = GREEN
+        rationale = "Profil financier solide - rentabilite, liquidite et structure capitalistique convergent positivement."
+    elif health >= 0.45:
+        action = "INVESTIR SOUS CONDITIONS"
+        tone = "warn"
+        color = AMBER
+        rationale = "Profil mixte - convaincant sur certains axes mais avec des fragilites a documenter et a corriger avant decaissement."
+    else:
+        action = "NE PAS INVESTIR"
+        tone = "bad"
+        color = RED
+        rationale = "Profil financier insuffisant a ce stade - les fragilites identifiees portent sur des axes critiques (rentabilite, liquidite ou structure)."
+
+    next_steps: list[str] = []
+    if action.startswith("INVESTIR S"):
+        next_steps.append("Demander un comparable sectoriel pour valider les marges.")
+        if watch or risks:
+            for r in (risks + watch)[:3]:
+                next_steps.append(f"Documenter et plan d'action sur {r.split(' :')[0]}.")
+    elif action.startswith("INVESTIR"):
+        next_steps.append("Confirmer en due diligence approfondie (juridique, fiscale, sociale).")
+        next_steps.append("Negocier les covenants en lien avec les ratios cles.")
+    else:
+        next_steps.append("Notifier le porteur avec analyse motivee.")
+        next_steps.append("Proposer une orientation vers un accompagnement de restructuration.")
+
+    return {
+        "health_score": health,
+        "action": action,
+        "tone": tone,
+        "color": color,
+        "thesis": thesis,
+        "strengths": strengths,
+        "watch": watch,
+        "risks": risks,
+        "rationale": rationale,
+        "next_steps": next_steps,
+    }
+
+
+def financial_pdf(payload: dict[str, Any], data: dict[str, float],
+                  ratios: dict[str, dict[str, Any]], memo: dict[str, Any]) -> io.BytesIO:
+    """Generate a structured investment memo PDF."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        topMargin=15 * mm, bottomMargin=15 * mm,
+        leftMargin=16 * mm, rightMargin=16 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle("FinTitle", parent=styles["Title"], textColor=colors.HexColor(NAVY))
+    h2 = ParagraphStyle("FinH2", parent=styles["Heading2"], textColor=colors.HexColor(NAVY))
+    body = styles["BodyText"]
+    small = ParagraphStyle("FinSm", parent=body, fontSize=8, textColor=colors.HexColor(MUTED))
+    elements: list[Any] = []
+
+    if os.path.exists(LOGO_FILE):
+        try:
+            elements.append(Image(LOGO_FILE, width=42 * mm, height=17 * mm))
+            elements.append(Spacer(1, 6))
+        except Exception:
+            pass
+    elements.append(Paragraph("Memo d'investissement - analyse financiere", title))
+    elements.append(Paragraph(
+        f"<b>{payload.get('name', '')}</b> | {payload.get('sector', '')} | "
+        f"{dt.date.today():%d %b %Y}", body))
+    elements.append(Spacer(1, 8))
+    elements.append(Paragraph(
+        f"<font color='{memo['color']}'><b>Recommandation : {memo['action']}</b></font>", h2))
+    elements.append(Paragraph(
+        f"Score de sante financiere : <b>{memo['health_score']*100:.0f}/100</b>. {memo['rationale']}",
+        body))
+    elements.append(Spacer(1, 6))
+
+    if memo["thesis"]:
+        elements.append(Paragraph("These", h2))
+        for t in memo["thesis"]:
+            elements.append(Paragraph(f"- {t}", body))
+        elements.append(Spacer(1, 6))
+
+    elements.append(Paragraph("Tableau des ratios", h2))
+    rows = [["Ratio", "Valeur", "Drapeau", "Lecture"]]
+    flag_label = {"ok": "Vert", "warn": "Orange", "bad": "Rouge", "na": "n/d"}
+    for name, r in ratios.items():
+        rows.append([
+            name,
+            _format_ratio(r["value"], r["fmt"]),
+            flag_label[r["flag"]],
+            r["explanation"],
+        ])
+    table = Table(rows, colWidths=[40 * mm, 25 * mm, 22 * mm, 80 * mm])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor(LINE)),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor(LIGHT)]),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    elements.append(table)
+    elements.append(Spacer(1, 8))
+
+    if memo["strengths"]:
+        elements.append(Paragraph("Points forts", h2))
+        for s in memo["strengths"]:
+            elements.append(Paragraph(f"- {s}", body))
+        elements.append(Spacer(1, 4))
+    if memo["watch"]:
+        elements.append(Paragraph("Points de vigilance", h2))
+        for w in memo["watch"]:
+            elements.append(Paragraph(f"- {w}", body))
+        elements.append(Spacer(1, 4))
+    if memo["risks"]:
+        elements.append(Paragraph("Risques materiels", h2))
+        for r in memo["risks"]:
+            elements.append(Paragraph(f"- {r}", body))
+        elements.append(Spacer(1, 4))
+
+    elements.append(Paragraph("Prochaines etapes", h2))
+    for step in memo["next_steps"]:
+        elements.append(Paragraph(f"- {step}", body))
+
+    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(
+        "<font size=8 color='#6B7280'>Analyse generee automatiquement a partir des etats "
+        "financiers transmis. Document de support a la decision d'investissement, soumis a "
+        "validation par le comite.</font>", body))
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+
 def portfolio_pdf(df: pd.DataFrame, summary: pd.DataFrame) -> io.BytesIO:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -2739,6 +3157,101 @@ def plotly_method_bars(result: dict[str, Any]) -> Any:
     fig.update_xaxes(gridcolor=LINE, showgrid=True, zeroline=False, tickformat="$,.0s")
     fig.update_yaxes(showgrid=False)
     return _plotly_layout(fig, height=340)
+
+
+# Approximate centroids of the 24 Tunisian governorates (lat, lon).
+TN_GOVERNORATE_CENTROIDS: dict[str, tuple[float, float]] = {
+    "Tunis": (36.8065, 10.1815),
+    "Ariana": (36.8625, 10.1956),
+    "Ben Arous": (36.7472, 10.2292),
+    "Manouba": (36.8101, 10.0967),
+    "Nabeul": (36.4561, 10.7376),
+    "Zaghouan": (36.4028, 10.1428),
+    "Bizerte": (37.2744, 9.8739),
+    "Beja": (36.7256, 9.1817),
+    "Jendouba": (36.5011, 8.7800),
+    "Le Kef": (36.1740, 8.7050),
+    "Siliana": (36.0833, 9.3667),
+    "Sousse": (35.8254, 10.6360),
+    "Monastir": (35.7770, 10.8266),
+    "Mahdia": (35.5050, 11.0622),
+    "Kairouan": (35.6781, 10.0964),
+    "Kasserine": (35.1671, 8.8364),
+    "Sidi Bouzid": (35.0381, 9.4848),
+    "Sfax": (34.7406, 10.7603),
+    "Gabes": (33.8814, 10.0982),
+    "Medenine": (33.3548, 10.5055),
+    "Tataouine": (32.9297, 10.4518),
+    "Gafsa": (34.4250, 8.7842),
+    "Tozeur": (33.9197, 8.1335),
+    "Kebili": (33.7050, 8.9692),
+}
+
+
+def plotly_tunisia_map(region_counts: pd.Series, df: pd.DataFrame | None = None) -> Any:
+    """Bubble map of Tunisia: one bubble per governorate, sized by startup count."""
+    import plotly.graph_objects as go
+
+    rows: list[dict[str, Any]] = []
+    for region, count in region_counts.items():
+        if not isinstance(region, str):
+            continue
+        coords = TN_GOVERNORATE_CENTROIDS.get(region.strip())
+        if not coords:
+            continue
+        funded = 0
+        top_sector = ""
+        if df is not None and "Region" in df.columns:
+            sub = df[df["Region"].astype(str) == region.strip()]
+            if "funded" in sub.columns:
+                funded = int(sub["funded"].sum())
+            if "sector" in sub.columns and not sub["sector"].dropna().empty:
+                top_sector = str(sub["sector"].value_counts().head(1).index[0])
+        rows.append({
+            "region": region.strip(),
+            "lat": coords[0], "lon": coords[1],
+            "count": int(count), "funded": funded, "top_sector": top_sector,
+        })
+    if not rows:
+        return None
+    plot_df = pd.DataFrame(rows)
+    max_c = max(1, plot_df["count"].max())
+    plot_df["size"] = 12 + (plot_df["count"] / max_c) * 42
+
+    fig = go.Figure(go.Scattergeo(
+        lon=plot_df["lon"], lat=plot_df["lat"],
+        text=plot_df["region"],
+        customdata=plot_df[["count", "funded", "top_sector"]].values,
+        mode="markers+text",
+        textposition="top center",
+        textfont=dict(size=10, color=NAVY, family="Inter"),
+        marker=dict(
+            size=plot_df["size"], color=plot_df["count"],
+            colorscale=[[0.0, "#7C8BC9"], [0.5, NAVY], [1.0, RED]],
+            line=dict(color="white", width=1.5),
+            opacity=0.92, showscale=False,
+        ),
+        hovertemplate=(
+            "<b>%{text}</b><br>"
+            "Startups : %{customdata[0]}<br>"
+            "Finances : %{customdata[1]}<br>"
+            "Top secteur : %{customdata[2]}<extra></extra>"
+        ),
+    ))
+    fig.update_geos(
+        scope="africa",
+        center=dict(lat=34.7, lon=9.5),
+        projection_scale=8.5,
+        showcountries=True, countrycolor="#D9DCE6",
+        showcoastlines=True, coastlinecolor="#A1A8C9",
+        showland=True, landcolor="#F8F9FC",
+        showocean=True, oceancolor="#EAF1FA",
+        showframe=False,
+        fitbounds=False,
+        lataxis=dict(range=[30.0, 38.0]),
+        lonaxis=dict(range=[7.0, 12.0]),
+    )
+    return _plotly_layout(fig, height=480)
 
 
 def plotly_yearly_sparkline(years: pd.Series, color: str = NAVY) -> Any:
@@ -4127,6 +4640,27 @@ def run_app() -> None:
         if only_funded and "funded" in filtered.columns:
             filtered = filtered[filtered["funded"] == 1]
 
+        is_fr_pf = (lang == "FR")
+        map_title = "Carte des startups par gouvernorat" if is_fr_pf else "Startup map by governorate"
+        st.markdown(
+            f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,{NAVY},{RED})'>Carte</span>"
+            f"<h3>{map_title}</h3></div>",
+            unsafe_allow_html=True,
+        )
+        if "Region" in filtered.columns:
+            region_counts = filtered["Region"].dropna().astype(str).value_counts()
+        else:
+            region_counts = pd.Series(dtype=int)
+        tn_map = plotly_tunisia_map(region_counts, filtered)
+        if tn_map is not None:
+            st.plotly_chart(tn_map, use_container_width=True,
+                            config={"displayModeBar": False, "scrollZoom": False})
+        else:
+            st.info(
+                "Aucune region exploitable dans les filtres actuels."
+                if is_fr_pf else "No region data with current filters."
+            )
+
         c_left, c_right = st.columns([1.4, 1])
         with c_left:
             st.markdown("**Repartition sectorielle (filtree)**")
@@ -4198,6 +4732,7 @@ def run_app() -> None:
             "Evaluer" if is_fr else "Run",
             "Scoring comite" if is_fr else "Committee scoring",
             "Valorisation" if is_fr else "Valuation",
+            "Diligence financiere" if is_fr else "Financial diligence",
             "Capitaliser" if is_fr else "Capitalize",
         ])
     with inner_tabs[0]:
@@ -4636,6 +5171,134 @@ def run_app() -> None:
         session["last_fmva_overall"] = overall
 
     with inner_tabs[3]:
+        is_fr = (lang == "FR")
+        st.markdown(
+            f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,{NAVY},{RED})'>"
+            f"{'Due diligence' if is_fr else 'Due diligence'}</span>"
+            f"<h3>{'Analyser des etats financiers' if is_fr else 'Analyse financial statements'}</h3></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Glissez un fichier .xlsx ou .csv contenant le P&L et/ou le bilan. "
+            "Le moteur extrait les lignes standard, calcule 12 ratios cles et "
+            "produit un memo d'investissement (PDF) avec recommandation argumentee."
+            if is_fr
+            else "Drop a .xlsx or .csv with the P&L and/or balance sheet. The engine "
+                 "extracts the standard lines, computes 12 key ratios and produces an "
+                 "investment memo (PDF) with an argued recommendation."
+        )
+        last = session.get("last_assessment") or {}
+        startup_name = st.text_input(
+            "Nom de la startup" if is_fr else "Startup name",
+            value=last.get("name", "Demo"),
+            key="fin_startup_name",
+        )
+        uploaded = st.file_uploader(
+            "Etats financiers (.xlsx / .csv)" if is_fr else "Financial statements (.xlsx / .csv)",
+            type=["xlsx", "xlsm", "xls", "csv"],
+            key="fin_upload",
+        )
+        if uploaded is not None:
+            parsed = parse_financial_statement(uploaded.getvalue(), uploaded.name)
+            if not parsed["ok"]:
+                st.error(parsed.get("error", "Erreur de lecture."))
+            else:
+                data = parsed["extracted"]
+                st.success(
+                    f"{len(data)} lignes reconnues / {parsed['n_rows']} lignes du fichier."
+                    if is_fr
+                    else f"{len(data)} lines recognised / {parsed['n_rows']} lines in the file."
+                )
+                extracted_df = pd.DataFrame(
+                    [{"Ligne": k, "Valeur": f"{v:,.0f}"} for k, v in data.items()]
+                )
+                with st.expander("Lignes extraites", expanded=False):
+                    st.dataframe(extracted_df, use_container_width=True, hide_index=True)
+
+                ratios = compute_financial_ratios(data)
+                memo = financial_memo(data, ratios)
+                session["last_financial"] = {
+                    "data": data, "ratios": ratios, "memo": memo,
+                    "name": startup_name,
+                    "sector": last.get("sector", ""),
+                }
+
+                # Recommendation banner
+                tone_c1, tone_c2 = _TONE_GRADIENTS[
+                    "green" if memo["tone"] == "ok" else ("amber" if memo["tone"] == "warn" else "red")
+                ]
+                rationale_html = "".join(f"<div>- {t}</div>" for t in memo["thesis"])
+                st.markdown(
+                    f"<div class='rec-banner' style='background:linear-gradient(135deg,{tone_c1},{tone_c2})'>"
+                    f"<div><div style='opacity:.85;font-size:.85rem'>"
+                    f"{'Recommandation IA' if is_fr else 'AI recommendation'}</div>"
+                    f"<div class='verdict'>{memo['action']}</div></div>"
+                    f"<div style='font-size:.88rem;max-width:60%'>{rationale_html}</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+                st.metric(
+                    "Score de sante financiere" if is_fr else "Financial health score",
+                    f"{memo['health_score']*100:.0f}/100",
+                )
+
+                ratio_df = pd.DataFrame([
+                    {
+                        "Ratio": name,
+                        "Valeur": _format_ratio(r["value"], r["fmt"]),
+                        "Drapeau": {"ok": "Vert", "warn": "Orange", "bad": "Rouge", "na": "n/d"}[r["flag"]],
+                        "Lecture": r["explanation"],
+                    }
+                    for name, r in ratios.items()
+                ])
+                st.markdown("**Tableau des ratios**" if is_fr else "**Ratio table**")
+                st.dataframe(ratio_df, use_container_width=True, hide_index=True)
+
+                if memo["strengths"]:
+                    st.markdown("**Points forts**" if is_fr else "**Strengths**")
+                    for s in memo["strengths"]:
+                        st.markdown(f"- {s}")
+                if memo["watch"]:
+                    st.markdown("**Vigilance**" if is_fr else "**Watch**")
+                    for w in memo["watch"]:
+                        st.markdown(f"- {w}")
+                if memo["risks"]:
+                    st.markdown("**Risques**" if is_fr else "**Risks**")
+                    for r_line in memo["risks"]:
+                        st.markdown(f"- {r_line}")
+
+                st.markdown("**Prochaines etapes**" if is_fr else "**Next steps**")
+                for step in memo["next_steps"]:
+                    st.markdown(f"- {step}")
+
+                pdf_buf = financial_pdf(
+                    {"name": startup_name, "sector": last.get("sector", "")},
+                    data, ratios, memo,
+                )
+                st.download_button(
+                    "Telecharger le memo PDF" if is_fr else "Download memo PDF",
+                    pdf_buf,
+                    file_name=f"Memo_{(startup_name or 'startup').replace(' ', '_')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="dl_financial_pdf",
+                )
+        else:
+            st.info(
+                "Format attendu : colonne A = libelles, colonnes B+ = annees. "
+                "Les libelles reconnus incluent : revenue/chiffre d'affaires, COGS, gross profit, "
+                "OpEx, EBITDA, EBIT, net income, interest expense, depreciation, total assets, "
+                "current assets, cash, receivables, inventory, current liabilities, total liabilities, "
+                "equity, long-term debt."
+                if is_fr
+                else "Expected format: column A = labels, columns B+ = years. Recognised labels "
+                     "include: revenue, COGS, gross profit, OpEx, EBITDA, EBIT, net income, "
+                     "interest expense, depreciation, total assets, current assets, cash, "
+                     "receivables, inventory, current liabilities, total liabilities, equity, "
+                     "long-term debt."
+            )
+
+    with inner_tabs[4]:
         is_fr = (lang == "FR")
         st.markdown(
             f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,{NAVY},{RED})'>"
