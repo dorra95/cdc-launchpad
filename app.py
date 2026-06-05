@@ -113,12 +113,11 @@ TX = {
         "EN": "Access request registered. Administrator contact:",
         "FR": "Demande enregistree. Contact administrateur :",
     },
-    "tab_ecosystem": {"EN": "Ecosystem", "FR": "Ecosysteme"},
+    "tab_ecosystem": {"EN": "At a Glance", "FR": "A la une"},
+    "tab_programs": {"EN": "Our Programs", "FR": "Nos Programmes"},
     "tab_portfolio": {"EN": "Portfolio", "FR": "Portefeuille"},
     "tab_assessment": {"EN": "Assessment", "FR": "Evaluation"},
-    "tab_committee": {"EN": "Committee Scoring", "FR": "Grille de scoring"},
-    "tab_valuation": {"EN": "Valuation (FMVA)", "FR": "Valorisation (FMVA)"},
-    "tab_learning": {"EN": "Data & Learning", "FR": "Donnees & apprentissage"},
+    "tab_news": {"EN": "Newsroom", "FR": "Veille"},
     "tab_reports": {"EN": "Reports", "FR": "Rapports"},
     "logout": {"EN": "Log out", "FR": "Deconnexion"},
 }
@@ -2802,6 +2801,431 @@ def beneficiary_spotlight(df: pd.DataFrame, k: int = 4) -> list[dict[str, Any]]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Programs and Newsroom tabs - curated content from public CDC ecosystem
+# ---------------------------------------------------------------------------
+CDC_PROGRAMS: list[dict[str, Any]] = [
+    {
+        "name": "Anava - Fund of Funds",
+        "operator": "Smart Capital",
+        "url": "https://smartcapital.tn/",
+        "budget": "Up to 200 MDT",
+        "period": "2020 - ongoing",
+        "stage": "Seed to growth",
+        "summary_en": (
+            "First Tunisian fund-of-funds dedicated to startups. Anava invests in "
+            "private VC funds that back labelled startups, multiplying the firepower "
+            "of the public-private partnership."
+        ),
+        "summary_fr": (
+            "Premier fonds de fonds tunisien dedie aux startups. Anava investit "
+            "dans des fonds de capital risque prives qui financent les startups "
+            "labellisees, demultipliant la force de frappe du PPP."
+        ),
+        "partners": ["Smart Capital", "World Bank", "AFD", "KfW"],
+        "highlights_en": [
+            "Multi-stage coverage from seed to series B",
+            "Crowds in international LPs alongside CDC",
+            "Targets locally registered Tunisian funds",
+        ],
+        "highlights_fr": [
+            "Couverture multi-stade du seed a la serie B",
+            "Mobilise des LPs internationaux aux cotes de la CDC",
+            "Cible les fonds tunisiens enregistres localement",
+        ],
+        "tone": "navy",
+    },
+    {
+        "name": "VAIR Greentech",
+        "operator": "CDC + Smart Capital",
+        "url": "https://smartcapital.tn/",
+        "budget": "Repayable advance per startup",
+        "period": "2024 - ongoing",
+        "stage": "PoC, TRL 1-3",
+        "summary_en": (
+            "Repayable advances to finance the proof-of-concept stage of greentech "
+            "startups. The committee scores 7 axes (innovation, market, team, PoC, "
+            "budget, impact, risk) before any commitment."
+        ),
+        "summary_fr": (
+            "Avances remboursables pour financer le proof-of-concept des startups "
+            "greentech. Le comite note 7 axes (innovation, marche, equipe, PoC, "
+            "budget, impact, risque) avant tout engagement."
+        ),
+        "partners": ["CDC Tunisie", "Smart Capital", "Startup Tunisia"],
+        "highlights_en": [
+            "Focused on climate, energy, water, circular economy",
+            "Repayment indexed on revenue trajectory",
+            "Embedded in this very platform's scoring engine",
+        ],
+        "highlights_fr": [
+            "Cible climat, energie, eau, economie circulaire",
+            "Remboursement indexe sur la trajectoire de revenus",
+            "Integre au moteur de scoring de cette plateforme",
+        ],
+        "tone": "red",
+    },
+    {
+        "name": "Startup Act - the legal foundation",
+        "operator": "Government of Tunisia",
+        "url": "https://startup.gov.tn/",
+        "budget": "Fiscal & regulatory framework",
+        "period": "2018 (Law 2018-20) - ongoing",
+        "stage": "All stages",
+        "summary_en": (
+            "Tunisia's flagship startup law: one-stop label, founder-friendly "
+            "incentives (creation leave for salaried co-founders, capital guarantee, "
+            "tax holiday) and access to foreign currency. Foundation of the ecosystem."
+        ),
+        "summary_fr": (
+            "Loi phare des startups tunisiennes : label unique, incitations "
+            "founder-friendly (conge creation pour les salaries co-fondateurs, "
+            "garantie de capital, exoneration fiscale) et acces aux devises. "
+            "Socle de tout l'ecosysteme."
+        ),
+        "partners": ["MTC", "APII", "CDC Tunisie", "Startup Tunisia"],
+        "highlights_en": [
+            "1100+ labels delivered since 2019",
+            "Cross-ministry one-stop digital workflow",
+            "Reviewed every 3 years",
+        ],
+        "highlights_fr": [
+            "1100+ labels delivres depuis 2019",
+            "Workflow numerique inter-ministeriel",
+            "Revu tous les 3 ans",
+        ],
+        "tone": "navy",
+    },
+    {
+        "name": "Innov'i - regional innovation hubs",
+        "operator": "EU + CDC + Smart Capital",
+        "url": "https://smartcapital.tn/",
+        "budget": "12 MEUR programme",
+        "period": "2020 - 2024",
+        "stage": "Idea to early traction",
+        "summary_en": (
+            "Pre-acceleration and acceleration network deployed across multiple "
+            "Tunisian regions, pairing local hubs with international mentorship. "
+            "Goal: decentralise the ecosystem beyond Tunis."
+        ),
+        "summary_fr": (
+            "Reseau de pre-acceleration et acceleration deploye sur plusieurs "
+            "regions tunisiennes, associant des hubs locaux a du mentoring "
+            "international. Objectif : decentraliser l'ecosysteme au-dela de Tunis."
+        ),
+        "partners": ["European Union", "Smart Capital", "Regional incubators"],
+        "highlights_en": [
+            "Regional reach beyond Greater Tunis",
+            "Pre-acceleration + acceleration + investment readiness",
+            "Co-financed by the EU delegation",
+        ],
+        "highlights_fr": [
+            "Portee regionale au-dela du Grand Tunis",
+            "Pre-acceleration + acceleration + preparation a la levee",
+            "Cofinance par la delegation de l'UE",
+        ],
+        "tone": "red",
+    },
+    {
+        "name": "Diaspora invest - Tunisians overseas",
+        "operator": "GIZ + Smart Capital",
+        "url": "https://smartcapital.tn/",
+        "budget": "Sub-grant + accompaniment",
+        "period": "2022 - ongoing",
+        "stage": "Seed and growth",
+        "summary_en": (
+            "Targets Tunisian founders abroad considering a return-and-build, plus "
+            "diaspora investors backing local startups. Provides matching grants "
+            "and a network of in-country advisors."
+        ),
+        "summary_fr": (
+            "Cible les fondateurs tunisiens a l'etranger envisageant un retour, "
+            "ainsi que les investisseurs de la diaspora soutenant des startups "
+            "locales. Subventions de matching et reseau d'advisors en Tunisie."
+        ),
+        "partners": ["GIZ", "Smart Capital", "Diaspora networks"],
+        "highlights_en": [
+            "Founder return programme + investor track",
+            "Matching grants for diaspora-led rounds",
+            "Strong cross-border pipeline",
+        ],
+        "highlights_fr": [
+            "Programme retour fondateurs + volet investisseurs",
+            "Subventions de matching pour les tours diaspora",
+            "Pipeline transfrontalier solide",
+        ],
+        "tone": "navy",
+    },
+    {
+        "name": "CDC direct equity tickets",
+        "operator": "Caisse des Depots et Consignations",
+        "url": "https://www.cdc.tn/",
+        "budget": "Selective tickets",
+        "period": "Ongoing",
+        "stage": "Series A and beyond",
+        "summary_en": (
+            "Long-tenor equity participations made directly by the Caisse des "
+            "Depots in scale-stage Tunisian companies with strategic national value "
+            "(infrastructure, sovereignty, regional impact)."
+        ),
+        "summary_fr": (
+            "Participations en capital long terme prises directement par la Caisse "
+            "des Depots dans des entreprises tunisiennes en phase de scale a forte "
+            "valeur strategique nationale (infrastructure, souverainete, impact regional)."
+        ),
+        "partners": ["CDC Tunisie", "Selected co-investors"],
+        "highlights_en": [
+            "Patient capital with 7-10 year horizons",
+            "Co-invests with private VCs and DFIs",
+            "Aligned with national strategic priorities",
+        ],
+        "highlights_fr": [
+            "Capital patient sur 7-10 ans",
+            "Co-investissements avec VCs prives et DFIs",
+            "Aligne sur les priorites strategiques nationales",
+        ],
+        "tone": "red",
+    },
+]
+
+
+def _render_programs_tab(lang: str) -> None:
+    import streamlit as st
+
+    is_fr = (lang == "FR")
+    pill_label = "Nos Programmes" if is_fr else "Our Programs"
+    title = (
+        "Capital, accompagnement et legal - le stack public deploye par la CDC"
+        if is_fr
+        else "Capital, support and legal - the public stack deployed by CDC"
+    )
+    st.markdown(
+        f"<div class='section-h'><span class='pill'>{pill_label}</span>"
+        f"<h3>{title}</h3></div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Chaque carte resume un programme actif, ses partenaires, son budget "
+        "indicatif et ses points cles. Cliquez pour ouvrir la source officielle."
+        if is_fr
+        else "Each card summarises an active programme, its partners, indicative "
+             "budget and key highlights. Click through for the official source."
+    )
+
+    cards_html = []
+    for prog in CDC_PROGRAMS:
+        c1, c2 = _TONE_GRADIENTS.get(prog["tone"], (NAVY, "#1B2150"))
+        summary = prog["summary_fr"] if is_fr else prog["summary_en"]
+        highlights = prog["highlights_fr"] if is_fr else prog["highlights_en"]
+        partners_html = "".join(
+            f"<span class='prog-chip'>{p}</span>" for p in prog["partners"]
+        )
+        hl_html = "".join(f"<li>{h}</li>" for h in highlights)
+        labels = ("Budget", "Periode", "Stade") if is_fr else ("Budget", "Period", "Stage")
+        cta = "Ouvrir la source" if is_fr else "Open source"
+        cards_html.append(
+            f"<div class='prog-card'>"
+            f"  <div class='prog-cover' style='background:linear-gradient(135deg,{c1},{c2})'>"
+            f"    <div class='prog-name'>{prog['name']}</div>"
+            f"    <div class='prog-op'>{prog['operator']}</div>"
+            f"  </div>"
+            f"  <div class='prog-body'>"
+            f"    <p class='prog-summary'>{summary}</p>"
+            f"    <div class='prog-meta'>"
+            f"      <div><span class='l'>{labels[0]}</span><span class='v'>{prog['budget']}</span></div>"
+            f"      <div><span class='l'>{labels[1]}</span><span class='v'>{prog['period']}</span></div>"
+            f"      <div><span class='l'>{labels[2]}</span><span class='v'>{prog['stage']}</span></div>"
+            f"    </div>"
+            f"    <div class='prog-partners'>{partners_html}</div>"
+            f"    <ul class='prog-hl'>{hl_html}</ul>"
+            f"    <a class='prog-link' href='{prog['url']}' target='_blank' rel='noopener'>{cta} &nbsp;&rsaquo;</a>"
+            f"  </div>"
+            f"</div>"
+        )
+    st.markdown(
+        f"<div class='prog-grid'>{''.join(cards_html)}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+NEWSROOM_ARTICLES: list[dict[str, Any]] = [
+    {
+        "title_en": "Startup Act labels cross the 1,100 milestone",
+        "title_fr": "Le label Startup Act franchit la barre des 1 100",
+        "source": "startup.gov.tn",
+        "date": "2025-09-12",
+        "tag": "Policy",
+        "url": "https://startup.gov.tn/",
+        "summary_en": (
+            "The one-stop labelling workflow has now issued more than 1,100 active "
+            "Startup Act labels, with greentech and fintech absorbing most of the "
+            "recent vintages."
+        ),
+        "summary_fr": (
+            "Le guichet unique a delivre plus de 1 100 labels Startup Act actifs, "
+            "les vintages recents etant largement absorbes par la greentech et la fintech."
+        ),
+        "color": "navy",
+    },
+    {
+        "title_en": "Anava commits to a new VC fund focused on MENA scale-ups",
+        "title_fr": "Anava engage un nouveau fonds VC dedie au scale-up MENA",
+        "source": "smartcapital.tn",
+        "date": "2025-08-23",
+        "tag": "Capital",
+        "url": "https://smartcapital.tn/",
+        "summary_en": (
+            "The fund-of-funds adds another tranche to a regional VC manager "
+            "targeting series A and B opportunities across MENA, with a Tunisian "
+            "allocation floor."
+        ),
+        "summary_fr": (
+            "Le fonds de fonds ajoute une tranche a un manager regional cible "
+            "series A et B au Maghreb-MENA, avec un plancher d'allocation pour la Tunisie."
+        ),
+        "color": "red",
+    },
+    {
+        "title_en": "VAIR opens its second greentech window",
+        "title_fr": "VAIR ouvre sa deuxieme fenetre greentech",
+        "source": "smartcapital.tn",
+        "date": "2025-07-04",
+        "tag": "Programme",
+        "url": "https://smartcapital.tn/",
+        "summary_en": (
+            "The repayable-advance programme reopens applications for greentech "
+            "proofs of concept, with sharpened impact and execution criteria."
+        ),
+        "summary_fr": (
+            "Le programme d'avances remboursables rouvre ses candidatures pour les "
+            "proofs of concept greentech, avec des criteres d'impact et d'execution affines."
+        ),
+        "color": "navy",
+    },
+    {
+        "title_en": "MENA VC pulse: Tunisia tightens its grip on greentech",
+        "title_fr": "Pouls VC MENA : la Tunisie consolide sa position en greentech",
+        "source": "wamda.com",
+        "date": "2025-06-18",
+        "tag": "Analysis",
+        "url": "https://www.wamda.com/tags/tunisia",
+        "summary_en": (
+            "Regional reporting highlights a clustering of Tunisian greentech and "
+            "fintech rounds, with stronger founder caliber and tighter unit "
+            "economics than previous cohorts."
+        ),
+        "summary_fr": (
+            "La presse regionale releve une concentration de tours greentech et "
+            "fintech tunisiens, avec un caliber fondateur plus eleve et des unit "
+            "economics plus serrees que les cohortes precedentes."
+        ),
+        "color": "red",
+    },
+    {
+        "title_en": "Diaspora track: matched grants for return founders",
+        "title_fr": "Volet diaspora : subventions de matching pour fondateurs returnees",
+        "source": "smartcapital.tn",
+        "date": "2025-05-30",
+        "tag": "Programme",
+        "url": "https://smartcapital.tn/",
+        "summary_en": (
+            "The diaspora pipeline pairs returning Tunisian founders with matched "
+            "subgrants and local advisors, easing the soft-landing into the "
+            "domestic ecosystem."
+        ),
+        "summary_fr": (
+            "Le pipeline diaspora associe les fondateurs tunisiens de retour a des "
+            "subventions de matching et des advisors locaux, facilitant l'atterrissage "
+            "dans l'ecosysteme domestique."
+        ),
+        "color": "navy",
+    },
+    {
+        "title_en": "Africa Report - Tunisia's startup engine quietly accelerates",
+        "title_fr": "Africa Report - l'engin startup tunisien accelere en silence",
+        "source": "theafricareport.com",
+        "date": "2025-04-22",
+        "tag": "Press",
+        "url": "https://www.theafricareport.com/tag/tunisia/",
+        "summary_en": (
+            "Long-form coverage on the second wave of Tunisian founders building "
+            "for the continent and the Gulf, supported by deepening public-private "
+            "capital."
+        ),
+        "summary_fr": (
+            "Long format sur la deuxieme vague de fondateurs tunisiens batissant "
+            "pour le continent et le Golfe, soutenus par un capital public-prive "
+            "qui s'approfondit."
+        ),
+        "color": "red",
+    },
+]
+
+
+def _fmt_date(date_iso: str, lang: str) -> str:
+    try:
+        d = dt.date.fromisoformat(date_iso)
+    except Exception:
+        return date_iso
+    if lang == "FR":
+        months_fr = [
+            "janv.", "fev.", "mars", "avr.", "mai", "juin",
+            "juil.", "aout", "sept.", "oct.", "nov.", "dec.",
+        ]
+        return f"{d.day} {months_fr[d.month - 1]} {d.year}"
+    return d.strftime("%d %b %Y")
+
+
+def _render_newsroom_tab(lang: str) -> None:
+    import streamlit as st
+
+    is_fr = (lang == "FR")
+    pill = "Veille" if is_fr else "Newsroom"
+    title = (
+        "Les signaux faibles et forts de l'ecosysteme tunisien et MENA"
+        if is_fr
+        else "Strong and weak signals from the Tunisian and MENA ecosystem"
+    )
+    st.markdown(
+        f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,{NAVY},{RED})'>{pill}</span>"
+        f"<h3>{title}</h3></div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Les cartes ci-dessous renvoient vers les sources officielles. Pour activer "
+        "une veille temps reel, brancher un flux RSS via la configuration plateforme."
+        if is_fr
+        else "Cards link to the official sources. To activate a live feed, plug an "
+             "RSS source through the platform configuration."
+    )
+
+    cards_html = []
+    for art in NEWSROOM_ARTICLES:
+        c1, c2 = _TONE_GRADIENTS.get(art["color"], (NAVY, "#1B2150"))
+        title_text = art["title_fr"] if is_fr else art["title_en"]
+        summary = art["summary_fr"] if is_fr else art["summary_en"]
+        date_str = _fmt_date(art["date"], lang)
+        read_cta = "Lire la source" if is_fr else "Read the source"
+        cards_html.append(
+            f"<div class='news-card'>"
+            f"  <div class='news-cover' style='background:linear-gradient(135deg,{c1},{c2})'>"
+            f"    <span class='news-tag'>{art['tag']}</span>"
+            f"    <span class='news-date'>{date_str}</span>"
+            f"  </div>"
+            f"  <div class='news-body'>"
+            f"    <div class='news-source'>{art['source']}</div>"
+            f"    <h4>{title_text}</h4>"
+            f"    <p>{summary}</p>"
+            f"    <a href='{art['url']}' target='_blank' rel='noopener'>{read_cta} &nbsp;&rsaquo;</a>"
+            f"  </div>"
+            f"</div>"
+        )
+    st.markdown(
+        f"<div class='news-grid'>{''.join(cards_html)}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _inject_css() -> None:
     import streamlit as st
 
@@ -2811,6 +3235,10 @@ def _inject_css() -> None:
         :root {{
             --navy: {NAVY};
             --red: {RED};
+            --ink: {INK};
+            --muted: {MUTED};
+            --line: #E5E7EB;
+            --light: #F8F9FC;
             --gold: {GOLD};
             --teal: {TEAL};
             --violet: {VIOLET};
@@ -2824,11 +3252,12 @@ def _inject_css() -> None:
             --light: {LIGHT};
         }}
         .stApp {{
-            background:
-              radial-gradient(1100px 600px at -10% -20%, rgba(39,46,95,0.10), transparent 60%),
-              radial-gradient(900px 500px at 110% 0%, rgba(209,10,17,0.07), transparent 55%),
-              linear-gradient(180deg, #FBFBFE 0%, {LIGHT} 100%);
+            background: #FFFFFF;
             color: {INK};
+        }}
+        section[data-testid="stSidebar"] {{
+            background: linear-gradient(180deg, #FAFBFE 0%, #FFFFFF 100%);
+            border-right: 1px solid #EFF1F6;
         }}
         h1, h2, h3, h4 {{
             color: {NAVY};
@@ -2837,59 +3266,119 @@ def _inject_css() -> None:
         .block-container {{
             padding-top: 1.0rem;
             padding-bottom: 2.2rem;
-            max-width: 1420px;
+            max-width: 1440px;
         }}
-        /* Hero with animated logo */
+        /* Hero - white card with brand gradient accent */
         .cdc-hero {{
             position: relative;
             overflow: hidden;
-            border-radius: 18px;
-            padding: 1.4rem 1.6rem;
-            margin-bottom: 1rem;
+            border-radius: 22px;
+            padding: 1.5rem 1.7rem;
+            margin-bottom: 1.1rem;
             background:
-              radial-gradient(800px 300px at 90% -10%, rgba(255,255,255,0.18), transparent 70%),
-              linear-gradient(135deg, {NAVY} 0%, #1B2150 45%, #471019 100%);
-            color: white;
-            box-shadow: 0 22px 60px -28px rgba(39,46,95,0.55), 0 1px 0 rgba(255,255,255,0.06) inset;
+              radial-gradient(900px 380px at 110% -20%, rgba(209,10,17,0.10), transparent 60%),
+              radial-gradient(900px 380px at -10% 110%, rgba(39,46,95,0.10), transparent 60%),
+              #FFFFFF;
+            border: 1px solid #EEF0F6;
+            box-shadow: 0 32px 60px -36px rgba(39,46,95,0.30);
         }}
-        .cdc-hero::after {{
-            content: ''; position: absolute; inset: 0;
-            background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.20));
-            pointer-events: none;
+        .cdc-hero::before {{
+            content:''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
+            background: linear-gradient(180deg, {NAVY} 0%, {RED} 100%);
+        }}
+        /* Animated title */
+        .cdc-title-anim {{
+            font-size: clamp(2rem, 4.2vw, 3.4rem);
+            font-weight: 900;
+            line-height: 1;
+            margin: 0;
+            letter-spacing: -0.02em;
+            background: linear-gradient(110deg, {NAVY} 10%, {RED} 35%, {NAVY} 60%, {RED} 85%);
+            background-size: 220% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            animation: cdcShine 7s linear infinite;
+        }}
+        .cdc-title-anim .pad {{
+            display: inline-block; transform-origin: 50% 60%;
+            animation: cdcFloat 4.5s ease-in-out infinite;
+        }}
+        @keyframes cdcShine {{
+            0% {{ background-position: 0% 50%; }}
+            100% {{ background-position: 220% 50%; }}
+        }}
+        @keyframes cdcFloat {{
+            0%, 100% {{ transform: translateY(0) scale(1); }}
+            50% {{ transform: translateY(-3px) scale(1.02); }}
+        }}
+        .cdc-tag-line {{
+            font-size: 1.02rem; color: {INK};
+            margin: 0.4rem 0 0.5rem 0; font-weight: 500;
+            max-width: 720px;
+        }}
+        .cdc-tag-line .accent {{ color: {RED}; font-weight: 800; }}
+        /* Quote rotator */
+        .cdc-quote-wrap {{
+            margin-top: 0.7rem; position: relative; min-height: 76px;
+            border-top: 1px dashed #EEF0F6; padding-top: 0.7rem;
+        }}
+        .cdc-quote {{
+            display: flex; align-items: center; gap: 0.85rem;
+            opacity: 0; position: absolute; inset: 0.7rem 0 0 0;
+            animation: cdcQuoteCycle 30s infinite;
+        }}
+        .cdc-quote:nth-child(1) {{ animation-delay: 0s; }}
+        .cdc-quote:nth-child(2) {{ animation-delay: 6s; }}
+        .cdc-quote:nth-child(3) {{ animation-delay: 12s; }}
+        .cdc-quote:nth-child(4) {{ animation-delay: 18s; }}
+        .cdc-quote:nth-child(5) {{ animation-delay: 24s; }}
+        @keyframes cdcQuoteCycle {{
+            0%, 18% {{ opacity: 0; transform: translateY(6px); }}
+            2%, 16% {{ opacity: 1; transform: translateY(0); }}
+            20%, 100% {{ opacity: 0; transform: translateY(-6px); }}
+        }}
+        .cdc-quote .avatar {{
+            width: 44px; height: 44px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-weight: 800; color: white; font-size: 0.95rem;
+            box-shadow: 0 8px 22px -10px rgba(39,46,95,0.55);
+            flex-shrink: 0;
+        }}
+        .cdc-quote .text {{ color: {INK}; font-size: 0.96rem; line-height: 1.35; font-style: italic; }}
+        .cdc-quote .who {{
+            color: {MUTED}; font-size: 0.78rem; margin-top: 0.15rem; font-style: normal; font-weight: 600;
         }}
         .cdc-hero-row {{
             position: relative; z-index: 2;
-            display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; align-items: center;
+            display: grid; grid-template-columns: 230px 1fr; gap: 1.5rem; align-items: center;
         }}
         @media (max-width: 900px) {{
             .cdc-hero-row {{ grid-template-columns: 1fr; }}
         }}
-        .cdc-hero h1 {{
-            font-size: clamp(1.7rem, 3vw, 2.6rem);
-            color: white;
-            margin: 0 0 0.4rem 0;
-            font-weight: 800;
-        }}
-        .cdc-hero p.tagline {{
-            margin: 0; color: rgba(255,255,255,0.85);
-            font-size: 1.02rem; line-height: 1.45;
-        }}
-        .cdc-hero .badges {{ margin-top: 0.7rem; display:flex; flex-wrap:wrap; gap: 0.4rem; }}
+        .cdc-hero .badges {{ margin-top: 0.45rem; display:flex; flex-wrap:wrap; gap: 0.4rem; }}
         .cdc-hero .badge {{
             display:inline-flex; align-items:center; gap:0.35rem;
-            background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22);
-            color:white; padding:0.25rem 0.65rem; border-radius:999px;
-            font-size:0.78rem; font-weight:600;
+            background: linear-gradient(135deg, rgba(39,46,95,0.06), rgba(209,10,17,0.06));
+            border:1px solid #E5E7EB;
+            color: {NAVY}; padding:0.28rem 0.7rem; border-radius:999px;
+            font-size:0.78rem; font-weight:700;
+            transition: transform 160ms ease, box-shadow 160ms ease;
         }}
-        .cdc-hero .badge .dot {{ width:6px; height:6px; border-radius:50%; background:{GOLD}; }}
+        .cdc-hero .badge:hover {{
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px -16px rgba(39,46,95,0.5);
+        }}
+        .cdc-hero .badge .dot {{ width:7px; height:7px; border-radius:50%; background:{RED}; }}
         .cdc-hero-logo {{
             display:flex; align-items:center; justify-content:center;
-            padding: 8px; border-radius: 16px; background: rgba(255,255,255,0.06);
-            border:1px solid rgba(255,255,255,0.12);
-            min-height: 160px;
+            padding: 10px; border-radius: 18px;
+            background: radial-gradient(circle at 30% 20%, #F6F7FB, #FFFFFF 70%);
+            border:1px solid #EEF0F6;
+            min-height: 170px;
         }}
         .cdc-hero-logo video, .cdc-hero-logo img {{
-            width: 100%; max-width: 260px; max-height: 180px; height: auto; border-radius: 12px;
+            width: 100%; max-width: 220px; max-height: 170px; height: auto; border-radius: 12px;
         }}
         /* KPI strip */
         .kpi-strip {{
@@ -3070,6 +3559,107 @@ def _inject_css() -> None:
             color: {RED} !important;
         }}
         div[data-testid="stMetricValue"] {{ color: {NAVY}; }}
+        /* Program cards */
+        .prog-grid {{
+            display:grid; grid-template-columns: repeat(auto-fit, minmax(310px,1fr));
+            gap: 0.9rem; margin: 0.5rem 0 1rem 0;
+        }}
+        .prog-card {{
+            background:#FFFFFF; border:1px solid #EEF0F6; border-radius: 16px;
+            overflow:hidden; display:flex; flex-direction:column; height:100%;
+            box-shadow: 0 20px 40px -28px rgba(39,46,95,0.30);
+            transition: transform 200ms ease, box-shadow 200ms ease;
+        }}
+        .prog-card:hover {{
+            transform: translateY(-4px);
+            box-shadow: 0 30px 56px -28px rgba(39,46,95,0.45);
+        }}
+        .prog-cover {{
+            padding: 1rem 1.1rem; color:white; position: relative;
+        }}
+        .prog-cover::after {{
+            content:''; position:absolute; inset:0;
+            background: radial-gradient(220px 110px at 90% 20%, rgba(255,255,255,0.22), transparent 60%);
+        }}
+        .prog-name {{
+            font-size: 1.05rem; font-weight: 800; line-height: 1.2; position: relative; z-index: 2;
+        }}
+        .prog-op {{
+            font-size: 0.78rem; opacity: 0.88; margin-top: 0.15rem; position: relative; z-index: 2;
+        }}
+        .prog-body {{
+            padding: 0.85rem 1.1rem 1rem 1.1rem;
+            display:flex; flex-direction:column; gap: 0.55rem; flex:1;
+        }}
+        .prog-summary {{ font-size:0.86rem; line-height:1.45; color:{INK}; margin: 0; }}
+        .prog-meta {{
+            display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem;
+            border-top: 1px dashed #EEF0F6; border-bottom: 1px dashed #EEF0F6;
+            padding: 0.45rem 0;
+        }}
+        .prog-meta > div {{ display:flex; flex-direction:column; gap: 0.05rem; }}
+        .prog-meta .l {{ font-size: 0.68rem; color: {MUTED}; letter-spacing: 0.3px; text-transform: uppercase; }}
+        .prog-meta .v {{ font-size: 0.84rem; color: {INK}; font-weight: 700; }}
+        .prog-partners {{ display:flex; flex-wrap:wrap; gap: 0.3rem; }}
+        .prog-chip {{
+            background: #F4F5FA; color: {NAVY}; border:1px solid #E5E7EB;
+            padding: 0.15rem 0.55rem; border-radius: 999px;
+            font-size: 0.72rem; font-weight: 700;
+        }}
+        .prog-hl {{ margin: 0; padding-left: 1.05rem; color: {INK}; font-size: 0.82rem; line-height: 1.4; }}
+        .prog-link {{
+            margin-top: auto; align-self:flex-start;
+            color: {RED}; font-weight: 800; font-size: 0.86rem; text-decoration: none;
+        }}
+        .prog-link:hover {{ text-decoration: underline; }}
+        /* News cards */
+        .news-grid {{
+            display:grid; grid-template-columns: repeat(auto-fit, minmax(300px,1fr));
+            gap: 0.9rem; margin: 0.5rem 0 1rem 0;
+        }}
+        .news-card {{
+            background:#FFFFFF; border:1px solid #EEF0F6; border-radius: 16px;
+            overflow:hidden; display:flex; flex-direction:column;
+            box-shadow: 0 18px 40px -28px rgba(39,46,95,0.30);
+            transition: transform 200ms ease, box-shadow 200ms ease;
+        }}
+        .news-card:hover {{
+            transform: translateY(-3px);
+            box-shadow: 0 26px 52px -28px rgba(39,46,95,0.45);
+        }}
+        .news-cover {{
+            padding: 0.9rem 1rem; color: white;
+            display:flex; justify-content:space-between; align-items:center;
+            position: relative; min-height: 70px;
+        }}
+        .news-cover::after {{
+            content:''; position:absolute; inset:0;
+            background: radial-gradient(180px 90px at 90% 25%, rgba(255,255,255,0.26), transparent 60%);
+        }}
+        .news-tag {{
+            background: rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.32);
+            padding: 0.18rem 0.6rem; border-radius: 999px; font-size: 0.72rem;
+            font-weight: 700; position: relative; z-index: 2;
+        }}
+        .news-date {{
+            font-size: 0.78rem; font-weight: 700; opacity: 0.95; position: relative; z-index: 2;
+        }}
+        .news-body {{
+            padding: 0.85rem 1rem 1rem 1rem;
+            display:flex; flex-direction:column; gap: 0.4rem;
+        }}
+        .news-source {{
+            font-size: 0.74rem; color: {RED}; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase;
+        }}
+        .news-body h4 {{
+            margin: 0; color: {NAVY}; font-size: 1rem; font-weight: 800; line-height: 1.25;
+        }}
+        .news-body p {{ margin: 0; color: {INK}; font-size: 0.85rem; line-height: 1.45; }}
+        .news-body a {{
+            margin-top: 0.2rem; color: {RED}; font-weight: 800; font-size: 0.83rem;
+            text-decoration: none;
+        }}
+        .news-body a:hover {{ text-decoration: underline; }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -3122,6 +3712,32 @@ def _alert(level: str, title: str, details: list[str]) -> None:
     )
 
 
+HERO_QUOTES_EN: list[tuple[str, str, str]] = [
+    ("Speed is the moat. Compounding execution beats clever strategy on a slide deck.",
+     "Founder mindset", "FM"),
+    ("Capital is patient when traction is loud. Make the numbers talk before you do.",
+     "Investor wisdom", "IW"),
+    ("The best Tunisian startups don't ask for permission. They ship, measure, iterate.",
+     "Builder's law", "BL"),
+    ("Distribution is the new innovation. Pick a wedge and own it before anyone notices.",
+     "Operator's playbook", "OP"),
+    ("Funding is a milestone, not a finish line. Welcome to the control room.",
+     "CDC LaunchPAD", "CL"),
+]
+HERO_QUOTES_FR: list[tuple[str, str, str]] = [
+    ("La vitesse est votre rempart. L'execution composee bat la strategie sur slide.",
+     "Mental de fondateur", "MF"),
+    ("Le capital est patient quand la traction est bruyante. Faites parler les chiffres avant vous.",
+     "Sagesse d'investisseur", "SI"),
+    ("Les meilleures startups tunisiennes ne demandent pas la permission. Elles livrent, mesurent, iterent.",
+     "Loi du builder", "LB"),
+    ("La distribution est la nouvelle innovation. Choisissez un creneau et dominez-le.",
+     "Manuel de l'operateur", "MO"),
+    ("Le financement est une etape, pas une ligne d'arrivee. Bienvenue dans la salle de controle.",
+     "CDC LaunchPAD", "CL"),
+]
+
+
 def _header(lang: str) -> None:
     import base64
     import streamlit as st
@@ -3139,24 +3755,42 @@ def _header(lang: str) -> None:
             encoded = base64.b64encode(fh.read()).decode("ascii")
         media_html = f"<img src='data:image/png;base64,{encoded}' alt='CDC'>"
 
-    badges = (
-        ("Caisse des Depots", GOLD),
-        ("VAIR / Greentech", TEAL),
-        ("Smart Capital", RED),
-        ("Startup Act", NAVY),
-    )
+    badges = (("Smart Capital", RED), ("Startup Act", NAVY))
     badge_html = "".join(
         f"<span class='badge'><span class='dot' style='background:{c}'></span>{label}</span>"
         for label, c in badges
     )
+    quotes = HERO_QUOTES_FR if lang == "FR" else HERO_QUOTES_EN
+    avatar_palette = [(NAVY, "#1B2150"), (RED, "#8C0A0F"),
+                      (NAVY, RED), (RED, NAVY), (NAVY, "#1B2150")]
+    quote_html = "".join(
+        f"<div class='cdc-quote'>"
+        f"  <div class='avatar' style='background:linear-gradient(135deg,{c1},{c2})'>{initials}</div>"
+        f"  <div><div class='text'>\"{text}\"</div>"
+        f"  <div class='who'>{who}</div></div>"
+        f"</div>"
+        for (text, who, initials), (c1, c2) in zip(quotes, avatar_palette)
+    )
+    tagline = (
+        "From funding to breakout, welcome to Tunisia's next "
+        "<span class='accent'>game-changers'</span> control room."
+        if lang == "EN"
+        else "Du financement a la rupture, bienvenue dans la salle de "
+             "controle des <span class='accent'>game-changers</span> tunisiens."
+    )
+
+    cdc_letters = "".join(f"<span class='pad' style='animation-delay:{i*0.18}s'>{ch}</span>"
+                          for i, ch in enumerate("CDC LaunchPAD"))
     st.markdown(
         f"""
         <div class="cdc-hero">
             <div class="cdc-hero-row">
                 <div class="cdc-hero-logo">{media_html}</div>
                 <div>
-                    <h1>CDC LAUNCHPAD</h1>
+                    <h1 class="cdc-title-anim">{cdc_letters}</h1>
+                    <p class="cdc-tag-line">{tagline}</p>
                     <div class="badges">{badge_html}</div>
+                    <div class="cdc-quote-wrap">{quote_html}</div>
                 </div>
             </div>
         </div>
@@ -3349,11 +3983,10 @@ def run_app() -> None:
     tabs = st.tabs(
         [
             t("tab_ecosystem", lang),
+            t("tab_programs", lang),
             t("tab_portfolio", lang),
             t("tab_assessment", lang),
-            t("tab_committee", lang),
-            t("tab_valuation", lang),
-            t("tab_learning", lang),
+            t("tab_news", lang),
             t("tab_reports", lang),
         ]
     )
@@ -3448,6 +4081,9 @@ def run_app() -> None:
             st.line_chart(yearly, color=NAVY, height=320)
 
     with tabs[1]:
+        _render_programs_tab(lang)
+
+    with tabs[2]:
         st.markdown(
             "<div class='section-h'><span class='pill'>Portefeuille</span>"
             "<h3>Cartographie interactive du portefeuille</h3></div>",
@@ -3556,9 +4192,26 @@ def run_app() -> None:
             st.dataframe(filtered[display_cols].head(500),
                          use_container_width=True, hide_index=True, height=400)
 
-    with tabs[2]:
-        st.markdown("### Startup assessment")
-        query = st.text_input("Database check - startup name or identifier")
+    with tabs[3]:
+        is_fr = (lang == "FR")
+        inner_tabs = st.tabs([
+            "Evaluer" if is_fr else "Run",
+            "Scoring comite" if is_fr else "Committee scoring",
+            "Valorisation" if is_fr else "Valuation",
+            "Capitaliser" if is_fr else "Capitalize",
+        ])
+    with inner_tabs[0]:
+        run_title = "Lancer l'evaluation" if is_fr else "Run the assessment"
+        st.markdown(
+            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,"
+            f"{NAVY},{RED})'>Pilote</span>"
+            f"<h3>{run_title}</h3></div>",
+            unsafe_allow_html=True,
+        )
+        query = st.text_input(
+            "Look up - nom de startup ou identifiant RNE" if is_fr
+            else "Look up - startup name or registry id"
+        )
         if query:
             alert = lookup_startup(df, query)
             _alert(alert["level"], alert["title"], alert["details"])
@@ -3681,11 +4334,11 @@ def run_app() -> None:
                     use_container_width=True,
                 )
 
-    with tabs[3]:
-        st.markdown("### Committee scoring — VAIR Greentech grid")
+    with inner_tabs[1]:
+        st.markdown("### Grille de scoring - VAIR Greentech")
         st.caption(
-            "Auto-pré-rempli depuis l'évaluation. Les membres du comité ajustent chaque "
-            "critère (0-5), la note d'axe et la note globale sont recalculées en direct."
+            "Auto-prerempli depuis l'evaluation. Les membres du comite ajustent chaque "
+            "critere (0-5), la note d'axe et la note globale sont recalculees en direct."
         )
         if "scoring_inputs" not in session:
             session["scoring_inputs"] = auto_score_grid(
@@ -3799,11 +4452,11 @@ def run_app() -> None:
             )
         session["last_scorecard"] = scorecard
 
-    with tabs[4]:
-        st.markdown("### Valorisation FMVA — Triangulation 5 méthodes")
+    with inner_tabs[2]:
+        st.markdown("### Valorisation - Triangulation 5 methodes")
         st.caption(
             "Berkus / Scorecard (Payne) / Risk Factor Summation / Venture Capital / Hybrid DCF "
-            "— pondérés en ensemble avec contrôle qualité (IQR > 60% = revue requise)."
+            "- ponderes en ensemble avec controle qualite (IQR > 60% = revue requise)."
         )
         if "fmva_inputs" not in session:
             session["fmva_inputs"] = auto_fmva_inputs(
@@ -3982,101 +4635,71 @@ def run_app() -> None:
             )
         session["last_fmva_overall"] = overall
 
-    with tabs[5]:
+    with inner_tabs[3]:
+        is_fr = (lang == "FR")
         st.markdown(
-            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#0FB5A6,#067067)'>Learning loop</span>"
-            "<h3>Performances du modele et boucle d'apprentissage</h3></div>",
+            f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,{NAVY},{RED})'>"
+            f"{'Apprendre' if is_fr else 'Capitalize'}</span>"
+            f"<h3>{'Ajouter une startup et reentrainer le moteur' if is_fr else 'Add a startup, retrain the engine'}</h3></div>",
             unsafe_allow_html=True,
         )
-        m = bundle.metrics
-        store_rows = 0
-        try:
-            if os.path.exists(STORE_FILE):
-                store_rows = len(pd.read_csv(STORE_FILE))
-        except Exception:
-            store_rows = 0
-        metric_cards = [
-            ("Moteur", m["engine"], "engine type", "navy"),
-            ("ROC-AUC", "-" if m["roc_auc"] is None else f"{m['roc_auc']:.3f}",
-             "discrimination", "red"),
-            ("F1", "-" if m["f1"] is None else f"{m['f1']:.3f}",
-             "precision/rappel", "gold"),
-            ("Accuracy", "-" if m["accuracy"] is None else f"{m['accuracy']:.3f}",
-             "taux global", "teal"),
-            ("Echantillon", f"{m['n_rows']:,}", f"{m['n_funded']:,} finances", "violet"),
-            ("Boucle live", f"{store_rows:,}", "lignes apprises", "rose"),
-        ]
-        cards_html = []
-        for lbl, val, sub, tone in metric_cards:
-            c1, c2 = _TONE_GRADIENTS[tone]
-            cards_html.append(
-                f"<div class='kpi' style='--c1:{c1}; --c2:{c2}'>"
-                f"<span class='bar'></span>"
-                f"<div class='icon'>M</div>"
-                f"<div class='kpi-label'>{lbl}</div>"
-                f"<div class='kpi-value'>{val}</div>"
-                f"<div class='kpi-sub'>{sub}</div></div>"
-            )
-        st.markdown(f"<div class='kpi-strip'>{''.join(cards_html)}</div>",
-                    unsafe_allow_html=True)
-
-        ml_left, ml_right = st.columns([1.1, 1])
-        with ml_left:
-            st.markdown("**Drivers du modele - poids relatifs**")
-            try:
-                feats = getattr(bundle, "feature_importances", None)
-                if feats:
-                    fi_df = pd.DataFrame({"weight": list(feats.values())},
-                                         index=list(feats.keys())).sort_values("weight")
-                    st.bar_chart(fi_df, color=NAVY, height=300)
-                else:
-                    st.caption("Le moteur regle ne fournit pas de poids explicites.")
-            except Exception:
-                st.caption("Importances indisponibles pour ce moteur.")
-        with ml_right:
-            st.markdown("**Comment fonctionne la boucle**")
-            st.markdown(
-                "1. **Evaluer** une startup dans l'onglet Assessment.\n"
-                "2. **Labeller** le resultat reel (finance / non finance) ci-dessous.\n"
-                "3. La ligne est ecrite dans le store local et le modele est "
-                "**re-entraine immediatement**.\n"
-                "4. Toutes les recommandations futures (score, grille, FMVA) "
-                "**re-utilisent** le modele rafraichi."
-            )
-            st.caption(f"Stockage local : `{os.path.basename(STORE_FILE)}` "
-                       f"({store_rows} lignes capitalisees a ce jour).")
-
-        st.markdown(
-            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#D10A11,#8C0A0F)'>Capitaliser</span>"
-            "<h3>Ajouter un cas labellise et re-entrainer</h3></div>",
-            unsafe_allow_html=True,
+        st.caption(
+            "Chaque cas que vous labellisez ici alimente la boucle d'apprentissage : "
+            "le modele est reentraine immediatement et toutes les recommandations futures en profitent."
+            if is_fr
+            else "Every case you label here feeds the learning loop: the model retrains "
+                 "immediately and every future recommendation benefits."
         )
         with st.form("learning_form"):
             l1, l2, l3 = st.columns(3)
-            new_name = l1.text_input("Nom de la startup", "NewCo Tunisia")
-            new_sector = l2.selectbox("Secteur", sorted(df["sector"].dropna().astype(str).unique()), key="learn_sector")
-            new_year = l3.number_input("Annee de creation", 2000, ANALYSIS_YEAR, 2022, key="learn_year")
-            l4, l5, l6 = st.columns(3)
-            new_founders = l4.number_input("Fondateurs", 1, 12, 3, key="learn_founders")
-            outcome = l5.selectbox("Resultat reel", ["finance", "non finance"])
-            new_labelled = l6.checkbox("Label Startup Act", True, key="learn_label")
-            append = st.form_submit_button("Ajouter et re-entrainer", use_container_width=True)
-        if append:
-            total = append_record(
-                {
-                    "name": new_name,
-                    "sector": new_sector,
-                    "year": new_year,
-                    "founders": new_founders,
-                    "labelled": new_labelled,
-                    "funded": 1 if outcome == "finance" else 0,
-                }
+            new_name = l1.text_input(
+                "Nom de la startup" if is_fr else "Startup name",
+                "NewCo Tunisia",
             )
+            new_sector = l2.selectbox(
+                "Secteur" if is_fr else "Sector",
+                sorted(df["sector"].dropna().astype(str).unique()),
+                key="learn_sector",
+            )
+            new_year = l3.number_input(
+                "Annee de creation" if is_fr else "Founding year",
+                2000, ANALYSIS_YEAR, 2022, key="learn_year",
+            )
+            l4, l5, l6 = st.columns(3)
+            new_founders = l4.number_input(
+                "Fondateurs" if is_fr else "Founders",
+                1, 12, 3, key="learn_founders",
+            )
+            outcome = l5.selectbox(
+                "Resultat reel" if is_fr else "Actual outcome",
+                (["finance", "non finance"] if is_fr else ["funded", "not funded"]),
+            )
+            new_labelled = l6.checkbox(
+                "Label Startup Act", True, key="learn_label",
+            )
+            append = st.form_submit_button(
+                "Ajouter et reentrainer" if is_fr else "Add and retrain",
+                use_container_width=True,
+            )
+        if append:
+            funded_value = 1 if outcome in ("finance", "funded") else 0
+            total = append_record({
+                "name": new_name, "sector": new_sector, "year": new_year,
+                "founders": new_founders, "labelled": new_labelled,
+                "funded": funded_value,
+            })
             st.cache_resource.clear()
-            st.success(f"{total} lignes capitalisees. Modele en cours de re-entrainement...")
+            st.success(
+                f"{total} lignes capitalisees. Modele en cours de reentrainement."
+                if is_fr
+                else f"{total} cases captured. Engine retraining..."
+            )
             st.rerun()
 
-    with tabs[6]:
+    with tabs[4]:
+        _render_newsroom_tab(lang)
+
+    with tabs[5]:
         st.markdown(
             "<div class='section-h'><span class='pill'>Centre de rapports</span>"
             "<h3>Tous les livrables generes par la plateforme</h3></div>",
