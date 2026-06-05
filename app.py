@@ -3233,24 +3233,30 @@ def plotly_tunisia_map(
     max_c = max(1, plot_df["count"].max())
     plot_df["size"] = 12 + (plot_df["count"] / max_c) * 42
 
-    if dimension == "funded_rate":
-        color_vals = plot_df["funded_rate"]
-        cbar_label = "% finances"
-    elif dimension == "recent":
-        color_vals = plot_df["avg_year"]
-        cbar_label = "Annee moyenne"
+    sector_palette = [NAVY, RED, GOLD, TEAL, VIOLET, ROSE, BLUE, AMBER, GREEN,
+                      "#0B5394", "#A64D79", "#7C9100"]
+    if dimension == "sector_mix":
+        unique_sectors = list(dict.fromkeys(
+            s for s in plot_df["top_sector"] if s
+        ))
+        sector_to_color = {s: sector_palette[i % len(sector_palette)]
+                           for i, s in enumerate(unique_sectors)}
+        marker_colors = [sector_to_color.get(s, "#9CA3AF") for s in plot_df["top_sector"]]
+        marker_kwargs = dict(
+            size=plot_df["size"], color=marker_colors,
+            line=dict(color="white", width=1.5), opacity=0.92, showscale=False,
+        )
     else:
-        color_vals = plot_df["count"]
-        cbar_label = "Startups"
-
-    fig = go.Figure(go.Scattergeo(
-        lon=plot_df["lon"], lat=plot_df["lat"],
-        text=plot_df["region"],
-        customdata=plot_df[["count", "funded", "funded_rate", "avg_year", "top_sector"]].values,
-        mode="markers+text",
-        textposition="top center",
-        textfont=dict(size=10, color=NAVY, family="Inter"),
-        marker=dict(
+        if dimension == "funded_rate":
+            color_vals = plot_df["funded_rate"]
+            cbar_label = "% finances"
+        elif dimension == "recent":
+            color_vals = plot_df["avg_year"]
+            cbar_label = "Annee moyenne"
+        else:
+            color_vals = plot_df["count"]
+            cbar_label = "Startups"
+        marker_kwargs = dict(
             size=plot_df["size"], color=color_vals,
             colorscale=[[0.0, "#7C8BC9"], [0.5, NAVY], [1.0, RED]],
             line=dict(color="white", width=1.5),
@@ -3260,7 +3266,16 @@ def plotly_tunisia_map(
                 thickness=10, len=0.5, x=1.02,
                 tickfont=dict(size=9, color=MUTED),
             ),
-        ),
+        )
+
+    fig = go.Figure(go.Scattergeo(
+        lon=plot_df["lon"], lat=plot_df["lat"],
+        text=plot_df["region"],
+        customdata=plot_df[["count", "funded", "funded_rate", "avg_year", "top_sector"]].values,
+        mode="markers+text",
+        textposition="top center",
+        textfont=dict(size=10, color=NAVY, family="Inter"),
+        marker=marker_kwargs,
         hovertemplate=(
             "<b>%{text}</b><br>"
             "Startups : %{customdata[0]}<br>"
@@ -3269,6 +3284,17 @@ def plotly_tunisia_map(
             "Top secteur : %{customdata[4]}<extra></extra>"
         ),
     ))
+    if dimension == "sector_mix":
+        for s, c in sector_to_color.items():
+            fig.add_trace(go.Scattergeo(
+                lon=[None], lat=[None], mode="markers",
+                marker=dict(size=10, color=c, line=dict(color="white", width=1)),
+                name=s, showlegend=True,
+            ))
+        fig.update_layout(legend=dict(
+            font=dict(size=10, color=NAVY), bgcolor="rgba(255,255,255,0.8)",
+            x=1.02, y=0.5, yanchor="middle",
+        ))
     fig.update_geos(
         scope="africa",
         center=dict(lat=34.7, lon=9.5),
@@ -3549,11 +3575,9 @@ def _render_programs_tab(lang: str) -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        "Chaque carte resume un programme actif, ses partenaires, son budget "
-        "indicatif et ses points cles. Cliquez pour ouvrir la source officielle."
+        "Un programme par carte. Partenaires, budget, points cles. La source officielle est a un clic."
         if is_fr
-        else "Each card summarises an active programme, its partners, indicative "
-             "budget and key highlights. Click through for the official source."
+        else "One programme per card. Partners, budget, key highlights. Official source is one click away."
     )
 
     cards_html = []
@@ -3736,11 +3760,10 @@ def _render_newsroom_tab(lang: str) -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        "Les cartes ci-dessous renvoient vers les sources officielles. Pour activer "
-        "une veille temps reel, brancher un flux RSS via la configuration plateforme."
+        "Chaque carte ouvre la source. Branchez un flux RSS via la configuration "
+        "pour un flux temps reel."
         if is_fr
-        else "Cards link to the official sources. To activate a live feed, plug an "
-             "RSS source through the platform configuration."
+        else "Each card opens the source. Plug an RSS feed via platform config for a live stream."
     )
 
     cards_html = []
@@ -4646,6 +4669,25 @@ def run_app() -> None:
                 f"<div class='spot-grid'>{''.join(cards_html)}</div>",
                 unsafe_allow_html=True,
             )
+            is_fr_pf2 = (lang == "FR")
+            cta_label = "Pre-fill Assessment from a spotlight" if not is_fr_pf2 else "Pre-remplir l'evaluation depuis le spotlight"
+            st.caption(cta_label)
+            pf_cols = st.columns(len(spotlight))
+            for i, b in enumerate(spotlight):
+                btn_label = ("Score " if not is_fr_pf2 else "Scorer ") + b["name"][:18]
+                if pf_cols[i].button(btn_label, key=f"spot_prefill_{i}", use_container_width=True):
+                    session["prefill_from_spotlight"] = {
+                        "name": b["name"],
+                        "sector": b["sector"],
+                        "region": b["region"] if b["region"] in REGIONS_TN else REGIONS_TN[0],
+                        "founding_year": b["year"] or 2022,
+                        "is_labelled": b["labelled"],
+                    }
+                    st.success(
+                        f"Pre-rempli : {b['name']}. Ouvrez l'onglet Evaluation pour lancer."
+                        if is_fr_pf2
+                        else f"Pre-filled with {b['name']}. Open the Assessment tab to run it."
+                    )
 
         st.markdown(
             "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#C9A227,#8C7415)'>Carte sectorielle</span>"
@@ -4718,14 +4760,16 @@ def run_app() -> None:
             unsafe_allow_html=True,
         )
         dim_labels_fr = {
-            "density": "Densite (nombre de startups)",
-            "funded_rate": "Taux de financement (%)",
-            "recent": "Cohorte moyenne (annee)",
+            "density": "Densite",
+            "funded_rate": "Taux de financement",
+            "recent": "Cohorte moyenne",
+            "sector_mix": "Top secteur",
         }
         dim_labels_en = {
-            "density": "Density (number of startups)",
-            "funded_rate": "Funded rate (%)",
-            "recent": "Average cohort (year)",
+            "density": "Density",
+            "funded_rate": "Funded rate",
+            "recent": "Average cohort",
+            "sector_mix": "Top sector",
         }
         labels_map = dim_labels_fr if is_fr_pf else dim_labels_en
         dim_choice = st.radio(
@@ -4839,23 +4883,57 @@ def run_app() -> None:
             alert = lookup_startup(df, query)
             _alert(alert["level"], alert["title"], alert["details"])
 
+        prefill = session.pop("prefill_from_spotlight", None)
         with st.form("assessment_form"):
             c1, c2, c3 = st.columns(3)
-            name = c1.text_input("Startup name", value=query or "Demo Health Tunisia")
-            sector = c2.selectbox("Sector", sorted(df["sector"].dropna().astype(str).unique()))
-            region = c3.selectbox("Region", REGIONS_TN)
+            sectors_avail = sorted(df["sector"].dropna().astype(str).unique())
+            default_name = (prefill["name"] if prefill else (query or "Demo Health Tunisia"))
+            default_sector = (
+                prefill["sector"] if (prefill and prefill["sector"] in sectors_avail)
+                else sectors_avail[0]
+            )
+            default_region = prefill["region"] if prefill else REGIONS_TN[0]
+            default_year = int(prefill["founding_year"]) if prefill else 2021
+            default_labelled = bool(prefill["is_labelled"]) if prefill else True
+            name = c1.text_input(
+                "Startup name" if lang == "EN" else "Nom de la startup",
+                value=default_name,
+            )
+            sector = c2.selectbox(
+                "Sector" if lang == "EN" else "Secteur",
+                sectors_avail,
+                index=sectors_avail.index(default_sector) if default_sector in sectors_avail else 0,
+            )
+            region = c3.selectbox(
+                "Region" if lang == "EN" else "Region",
+                REGIONS_TN,
+                index=REGIONS_TN.index(default_region) if default_region in REGIONS_TN else 0,
+            )
 
             c4, c5, c6 = st.columns(3)
-            year = c4.number_input("Founding year", min_value=2000, max_value=ANALYSIS_YEAR, value=2021)
-            founders = c5.number_input("Number of founders", min_value=1, max_value=12, value=2)
-            stage = c6.selectbox("Product stage", ["Idea", "MVP", "Revenue-generating"], index=1)
+            year = c4.number_input(
+                "Founding year" if lang == "EN" else "Annee de creation",
+                min_value=2000, max_value=ANALYSIS_YEAR, value=default_year,
+            )
+            founders = c5.number_input(
+                "Number of founders" if lang == "EN" else "Nombre de fondateurs",
+                min_value=1, max_value=12, value=2,
+            )
+            stage_label = "Product stage" if lang == "EN" else "Stade produit"
+            stage = c6.selectbox(stage_label, ["Idea", "MVP", "Revenue-generating"], index=1)
 
             c7, c8, c9 = st.columns(3)
-            labelled = c7.checkbox("Startup Act label", value=True)
-            has_email = c8.checkbox("Verified contact", value=True)
-            has_web = c9.checkbox("Website", value=True)
+            labelled = c7.checkbox("Startup Act label", value=default_labelled)
+            has_email = c8.checkbox(
+                "Verified contact" if lang == "EN" else "Contact verifie", value=True,
+            )
+            has_web = c9.checkbox(
+                "Website" if lang == "EN" else "Site web", value=True,
+            )
 
-            st.markdown("#### Valuation inputs")
+            st.markdown(
+                f"#### {'Valuation inputs' if lang == 'EN' else 'Hypotheses de valorisation'}"
+            )
             v1, v2, v3 = st.columns(3)
             revenue = v1.number_input(
                 "Latest annual revenue (TND)",
@@ -5454,9 +5532,11 @@ def run_app() -> None:
         _render_newsroom_tab(lang)
 
     with tabs[5]:
+        is_fr_r = (lang == "FR")
         st.markdown(
-            "<div class='section-h'><span class='pill'>Centre de rapports</span>"
-            "<h3>Tous les livrables generes par la plateforme</h3></div>",
+            f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,{NAVY},{RED})'>"
+            f"{'Closeouts' if not is_fr_r else 'Livrables'}</span>"
+            f"<h3>{'Drop zone - every report this run produced' if not is_fr_r else 'Tous les livrables generes par la plateforme'}</h3></div>",
             unsafe_allow_html=True,
         )
         last = session.get("last_assessment")
