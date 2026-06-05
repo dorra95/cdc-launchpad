@@ -27,15 +27,19 @@ import pandas as pd
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(SCRIPT_DIR, "Startups_Tunisia_Master_v4.xlsx")
 LOGO_FILE = os.path.join(SCRIPT_DIR, "cdc_logo.png")
+LOGO_ANIMATION = os.path.join(SCRIPT_DIR, "cdc_animation.mp4")
 STORE_FILE = os.path.join(SCRIPT_DIR, "cdc_learning_store.csv")
+ACCESS_LOG = os.path.join(SCRIPT_DIR, "cdc_access_log.csv")
 
-ACCESS_CODE = "CDC2026"
 ADMIN_EMAIL = "dorra.fadhloun@msb.tn"
 ANALYSIS_YEAR = 2026
 RANDOM_STATE = 42
+ACCESS_CODE_TTL_MIN = 20
 
 NAVY = "#272E5F"
 RED = "#D10A11"
+GOLD = "#C9A227"
+TEAL = "#0FB5A6"
 INK = "#1F2937"
 MUTED = "#6B7280"
 LINE = "#D9DCE6"
@@ -43,6 +47,8 @@ LIGHT = "#F4F5F9"
 GREEN = "#227A4A"
 AMBER = "#B7791F"
 BLUE = "#2563EB"
+VIOLET = "#7C3AED"
+ROSE = "#E11D48"
 
 REGIONS_TN = [
     "Tunis",
@@ -878,6 +884,410 @@ SCORING_GRID: list[dict[str, Any]] = [
         ],
     },
 ]
+
+# ---------------------------------------------------------------------------
+# Email-code access flow
+# ---------------------------------------------------------------------------
+import csv
+import hashlib
+import secrets
+import smtplib
+from email.mime.text import MIMEText
+
+
+def _hash_code(email: str, code: str) -> str:
+    return hashlib.sha256(f"{email.strip().lower()}|{code}".encode()).hexdigest()
+
+
+def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
+    """Attempt SMTP send; fall back to admin log file if creds absent."""
+    host = os.environ.get("CDC_SMTP_HOST", "")
+    user = os.environ.get("CDC_SMTP_USER", "")
+    pwd = os.environ.get("CDC_SMTP_PASS", "")
+    sender = os.environ.get("CDC_SMTP_FROM", user or ADMIN_EMAIL)
+    body = (
+        "Bonjour,\n\nVotre code d'acces a la plateforme CDC LAUNCHPAD est : "
+        f"{code}\n\nCe code expire dans {ACCESS_CODE_TTL_MIN} minutes.\n\n"
+        "Si vous n'avez pas demande d'acces, ignorez ce message.\n\n— CDC Tunisie"
+    )
+    if host and user and pwd:
+        try:
+            msg = MIMEText(body, "plain", "utf-8")
+            msg["Subject"] = "CDC LAUNCHPAD - votre code d'acces"
+            msg["From"] = sender
+            msg["To"] = to_addr
+            with smtplib.SMTP_SSL(host, 465, timeout=10) as smtp:
+                smtp.login(user, pwd)
+                smtp.sendmail(sender, [to_addr], msg.as_string())
+            return True, "email"
+        except Exception:
+            pass
+    try:
+        new = not os.path.exists(ACCESS_LOG)
+        with open(ACCESS_LOG, "a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["timestamp", "email", "code"])
+            w.writerow([dt.datetime.utcnow().isoformat(), to_addr, code])
+        return True, "admin_log"
+    except Exception:
+        return False, "failed"
+
+
+def issue_access_code(email: str) -> dict[str, Any]:
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    ok, channel = _try_send_email(email, code)
+    return {
+        "ok": ok,
+        "channel": channel,
+        "hash": _hash_code(email, code),
+        "expires": dt.datetime.utcnow() + dt.timedelta(minutes=ACCESS_CODE_TTL_MIN),
+    }
+
+
+def verify_access_code(email: str, code: str, issued: dict[str, Any]) -> bool:
+    if not issued or not email or not code:
+        return False
+    if dt.datetime.utcnow() > issued.get("expires", dt.datetime.utcnow()):
+        return False
+    return secrets.compare_digest(_hash_code(email, code), issued.get("hash", ""))
+
+
+# ---------------------------------------------------------------------------
+# Tunisia ecosystem - curated landing references for the "A la une" panel
+# ---------------------------------------------------------------------------
+ECOSYSTEM_ARTICLES: list[dict[str, str]] = [
+    {
+        "title": "Startup Act Tunisie - label, fiscalite et financement",
+        "source": "startup.gov.tn",
+        "url": "https://startup.gov.tn/",
+        "tag": "Politique publique",
+        "summary": (
+            "Le Startup Act tunisien (loi 2018-20) ouvre un guichet unique pour "
+            "labelliser les startups innovantes : exoneration fiscale, conge "
+            "creation pour salaries, garantie de capital et acces simplifie aux "
+            "devises. Plus de 1100 startups labellisees depuis 2019."
+        ),
+        "color": "navy",
+    },
+    {
+        "title": "Anava - fund of funds tunisien pour le venture capital",
+        "source": "smartcapital.tn",
+        "url": "https://smartcapital.tn/",
+        "tag": "Capital risque",
+        "summary": (
+            "Anava, gere par Smart Capital, mobilise jusqu'a 200 MDT pour "
+            "investir dans une dizaine de fonds VC adressant les startups "
+            "tunisiennes - de l'amorcage au capital developpement, avec un "
+            "co-investissement de bailleurs internationaux (Banque Mondiale, "
+            "AfDB, KfW)."
+        ),
+        "color": "red",
+    },
+    {
+        "title": "Caisse des Depots et Consignations - moteur du financement long",
+        "source": "cdc.tn",
+        "url": "https://www.cdc.tn/",
+        "tag": "Financement public",
+        "summary": (
+            "La CDC Tunisie deploie des programmes d'investissement long terme : "
+            "ANAVA, VAIR (avances remboursables pour Greentech), participations "
+            "directes et programmes regionaux. Mission : densifier le marche "
+            "tunisien du capital innovation."
+        ),
+        "color": "gold",
+    },
+    {
+        "title": "VAIR Greentech - avances pour PoC bas carbone",
+        "source": "smartcapital.tn / cdc.tn",
+        "url": "https://smartcapital.tn/",
+        "tag": "Greentech",
+        "summary": (
+            "Le programme VAIR finance le passage du concept au PoC (TRL 1-3) "
+            "des startups greentech tunisiennes. Avance remboursable sur "
+            "trajectoire de revenus, evaluation par comite multi-criteres "
+            "(innovation, marche, equipe, impact ESG)."
+        ),
+        "color": "teal",
+    },
+    {
+        "title": "Flat6Labs Tunis - accelerateur seed",
+        "source": "flat6labs.com",
+        "url": "https://www.flat6labs.com/",
+        "tag": "Acceleration",
+        "summary": (
+            "Cohortes biannuelles de 8 a 10 startups tunisiennes, ticket initial "
+            "et programme de 4 mois de mentorat. Plus de 80 startups passees par "
+            "le programme depuis 2016, focus tech et fintech."
+        ),
+        "color": "violet",
+    },
+    {
+        "title": "216 Capital - VC tunisien actif sur seed et serie A",
+        "source": "216capital.com",
+        "url": "https://216capital.com/",
+        "tag": "Capital risque",
+        "summary": (
+            "Fonds early stage base a Tunis, investit en seed et pre-serie A "
+            "dans des startups tunisiennes et nord-africaines a portee MENA. "
+            "Tickets typiquement entre 50K et 500K USD."
+        ),
+        "color": "rose",
+    },
+    {
+        "title": "Wamda - veille ecosysteme MENA et Tunisie",
+        "source": "wamda.com",
+        "url": "https://www.wamda.com/tags/tunisia",
+        "tag": "Media",
+        "summary": (
+            "Plateforme de reference pour l'actualite startup MENA - couverture "
+            "reguliere des levees de fonds, sorties et programmes tunisiens. "
+            "Outil de veille pour identifier rapidement les tendances regionales."
+        ),
+        "color": "blue",
+    },
+    {
+        "title": "Africa Report - lecture macro de l'innovation tunisienne",
+        "source": "theafricareport.com",
+        "url": "https://www.theafricareport.com/tag/tunisia/",
+        "tag": "Media",
+        "summary": (
+            "Analyses geopolitiques et economiques sur la Tunisie, incluant la "
+            "dynamique entrepreneuriale, le climat des affaires et les annonces "
+            "des bailleurs. Source utile pour benchmarker la regulation."
+        ),
+        "color": "amber",
+    },
+]
+
+IMPACT_KPI_DEFINITIONS: list[dict[str, str]] = [
+    {"key": "total", "label": "Startups suivies", "icon": "RC", "tone": "navy"},
+    {"key": "funded", "label": "Financees au moins une fois", "icon": "$", "tone": "red"},
+    {"key": "labelled", "label": "Labellisees Startup Act", "icon": "L", "tone": "gold"},
+    {"key": "sectors", "label": "Secteurs couverts", "icon": "S", "tone": "teal"},
+    {"key": "women", "label": "Equipes feminines", "icon": "F", "tone": "rose"},
+    {"key": "recent", "label": "Crees apres 2020", "icon": "N", "tone": "violet"},
+]
+
+
+def compute_impact_kpis(df: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    total = int(len(df))
+    funded = int(df["funded"].sum()) if "funded" in df.columns else 0
+    labelled = int(df.get("is_labelled", pd.Series([])).sum()) if "is_labelled" in df.columns else 0
+    sectors = int(df["sector"].dropna().astype(str).nunique()) if "sector" in df.columns else 0
+    women = 0
+    if "Nom des fondateurs" in df.columns:
+        text = df["Nom des fondateurs"].astype(str).str.lower()
+        women = int(text.str.contains(r"\b(ms\.?|mme|miss|madame|mlle)\b", regex=True, na=False).sum())
+    recent = 0
+    if "founding_year" in df.columns:
+        years = pd.to_numeric(df["founding_year"], errors="coerce")
+        recent = int((years >= 2020).sum())
+    funded_rate = (funded / total * 100) if total else 0
+    return {
+        "total": {"value": total, "secondary": "dans la base CDC"},
+        "funded": {"value": funded, "secondary": f"{funded_rate:.0f}% du portefeuille"},
+        "labelled": {"value": labelled, "secondary": "Startup Act"},
+        "sectors": {"value": sectors, "secondary": "verticales"},
+        "women": {"value": women, "secondary": "founders feminins"},
+        "recent": {"value": recent, "secondary": "post-2020"},
+    }
+
+
+# ---------------------------------------------------------------------------
+# AI rationale engines - turn numbers into argued justifications
+# ---------------------------------------------------------------------------
+def _anchor_for(axis: str, criterion: str, score: int) -> str:
+    for block in SCORING_GRID:
+        if block["axis"] == axis:
+            for crit in block["criteria"]:
+                if crit["name"] == criterion:
+                    return crit["anchors"][max(0, min(5, score))]
+    return ""
+
+
+def axis_rationale(axis: str, criterion_scores: dict[str, int]) -> dict[str, Any]:
+    """Generate an argued rationale per axis citing strongest/weakest criteria."""
+    pairs = [(c, int(s)) for c, s in criterion_scores.items()]
+    if not pairs:
+        return {"summary": "Aucune donnee.", "strengths": [], "gaps": [], "advice": ""}
+    pairs.sort(key=lambda x: x[1], reverse=True)
+    strongest = pairs[0]
+    weakest = pairs[-1]
+    avg = sum(s for _, s in pairs) / len(pairs)
+    if avg >= 4:
+        verdict = "atout structurant"
+    elif avg >= 3:
+        verdict = "axe solide mais perfectible"
+    elif avg >= 2:
+        verdict = "axe a renforcer"
+    else:
+        verdict = "axe critique"
+    summary = (
+        f"Sur l'axe {axis}, la moyenne est de {avg:.1f}/5 ({verdict}). "
+        f"Le critere le mieux note est \"{strongest[0]}\" ({strongest[1]}/5 - "
+        f"{_anchor_for(axis, strongest[0], strongest[1])}). Le point faible "
+        f"identifie est \"{weakest[0]}\" ({weakest[1]}/5 - "
+        f"{_anchor_for(axis, weakest[0], weakest[1])})."
+    )
+    strengths = [
+        f"{c} note {s}/5 : {_anchor_for(axis, c, s)}"
+        for c, s in pairs if s >= 4
+    ]
+    gaps = [
+        f"{c} note {s}/5 : {_anchor_for(axis, c, s)}"
+        for c, s in pairs if s <= 2
+    ]
+    if avg < 3:
+        advice = (
+            f"Demander un complement de dossier sur \"{weakest[0]}\" avant "
+            "presentation au comite. Convoquer eventuellement le porteur en audition."
+        )
+    elif avg < 4:
+        advice = (
+            f"Eligible mais conditionner l'avis favorable a une clarification sur "
+            f"\"{weakest[0]}\"."
+        )
+    else:
+        advice = "Axe non bloquant - peut etre validee en l'etat."
+    return {"summary": summary, "strengths": strengths, "gaps": gaps, "advice": advice}
+
+
+def method_rationale(method: str, value_usd: float, fmva: dict[str, Any], result: dict[str, Any]) -> str:
+    """Plain-language rationale for each FMVA valuation method."""
+    if method == "Berkus":
+        top = max(fmva["berkus"].items(), key=lambda kv: kv[1])
+        return (
+            f"Berkus aggrege 5 facteurs de derisque a USD 500k chacun. "
+            f"Total attribue : ${value_usd:,.0f}. Le facteur dominant est "
+            f"\"{top[0]}\" a ${top[1]:,.0f}. "
+            f"Cap (USD 2.5M) {'respecte' if result['berkus_cap_ok'] else 'depasse'}."
+        )
+    if method == "Scorecard (Payne)":
+        mult = result["scorecard_weighted_multiplier"]
+        return (
+            f"La methode Scorecard de Payne applique un multiplicateur pondere "
+            f"de {mult:.2f}x sur la baseline pre-money tunisienne "
+            f"(${fmva.get('baseline_usd', TUNISIA_BASELINE_USD):,.0f}). "
+            f"Valorisation : ${value_usd:,.0f}. "
+            f"Pondere principalement par Management (25%) et Opportunite (20%)."
+        )
+    if method == "Risk Factor Summation":
+        adj = result["rfs_adjustment_usd"]
+        sign = "majoree" if adj >= 0 else "diminuee"
+        return (
+            f"RFS evalue 12 dimensions de risque entre -2 et +2, chaque "
+            f"increment valant USD 250k. La baseline est {sign} de "
+            f"${abs(adj):,.0f} pour atteindre ${value_usd:,.0f}."
+        )
+    if method == "Venture Capital Method":
+        vcb = result["vc_breakdown"]
+        return (
+            f"Methode VC : revenus actuels projetes a la sortie an {fmva['vc']['exit_year']} "
+            f"avec un multiple de {fmva['vc']['exit_multiple']:.1f}x = "
+            f"${vcb['projected_exit_usd']:,.0f}. Discount par le rendement cible "
+            f"({fmva['vc']['target_return']:.0f}x) puis dilution = pre-money "
+            f"${value_usd:,.0f}."
+        )
+    if method == "Hybrid DCF":
+        db = result["dcf_breakdown"]
+        return (
+            f"DCF a 5 ans : EBITDA initial {fmva['dcf']['starting_ebitda_tnd']:,.0f} TND "
+            f"croissant a {fmva['dcf']['ebitda_growth']:.0%}/an, actualise au "
+            f"WACC de {fmva['dcf']['wacc']:.1%}. Valeur terminale = EBITDA an 5 "
+            f"x {fmva['dcf']['terminal_multiple']:.1f}. "
+            f"Enterprise value = {db['enterprise_tnd']:,.0f} TND "
+            f"({value_usd:,.0f} USD)."
+        )
+    return f"Valorisation : ${value_usd:,.0f}."
+
+
+def overall_recommendation(
+    score: float,
+    scorecard: dict[str, Any],
+    fmva_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Produce a SELECT / DEFER / DECLINE call with argued rationale."""
+    global_note = scorecard["global_note"]
+    iqr = fmva_result["iqr_ratio"] if fmva_result else 0.0
+    rationale: list[str] = []
+    if score >= 70:
+        rationale.append(f"Score de financement modelise {score:.0f}/100 (au-dessus du seuil de selection 70).")
+    elif score >= 50:
+        rationale.append(f"Score modelise {score:.0f}/100 (zone d'arbitrage 50-70).")
+    else:
+        rationale.append(f"Score modelise {score:.0f}/100 (sous le seuil de viabilite).")
+
+    if global_note >= 3.5:
+        rationale.append(f"Note de comite agregee {global_note}/5 ({scorecard['recommendation']}).")
+    elif global_note >= 2.5:
+        rationale.append(f"Note de comite {global_note}/5 - dossier moyen, axes a renforcer.")
+    else:
+        rationale.append(f"Note de comite {global_note}/5 - dossier insuffisant en l'etat.")
+
+    weak = sorted(scorecard["axes"], key=lambda a: a["note"])[:2]
+    if weak:
+        rationale.append(
+            "Axes les plus faibles : "
+            + ", ".join(f"{w['axis']} ({w['note']}/5)" for w in weak)
+            + "."
+        )
+
+    if fmva_result:
+        if iqr > 0.6:
+            rationale.append(
+                f"Triangulation FMVA dispersee (IQR {iqr:.0%}) - hypotheses a "
+                "stresser avant decision finale."
+            )
+        else:
+            rationale.append(
+                f"Triangulation FMVA convergente (IQR {iqr:.0%}) - estimation "
+                f"d'ensemble ${fmva_result['ensemble_usd']:,.0f}."
+            )
+
+    if score >= 70 and global_note >= 3.5:
+        action = "SELECTIONNER"
+        tone = "ok"
+        color = GREEN
+    elif score >= 50 and global_note >= 2.5:
+        action = "DIFFERER (complement de dossier)"
+        tone = "warn"
+        color = AMBER
+    else:
+        action = "REJETER"
+        tone = "bad"
+        color = RED
+    return {
+        "action": action,
+        "tone": tone,
+        "color": color,
+        "rationale": rationale,
+        "next_steps": _next_steps(scorecard, fmva_result, action),
+    }
+
+
+def _next_steps(
+    scorecard: dict[str, Any],
+    fmva_result: dict[str, Any] | None,
+    action: str,
+) -> list[str]:
+    steps: list[str] = []
+    if action.startswith("REJETER"):
+        steps.append("Notifier le porteur par lettre motivee (avec axes faibles).")
+        steps.append("Proposer une orientation vers un programme d'incubation.")
+        return steps
+    if action.startswith("DIFFERER"):
+        gaps = [ax for ax in scorecard["axes"] if ax["note"] <= 2]
+        for ax in gaps[:3]:
+            steps.append(f"Demander pieces complementaires sur \"{ax['axis']}\".")
+    else:
+        steps.append("Convoquer audition de selection (comite VAIR).")
+        steps.append("Programmer une due diligence financiere et juridique.")
+    if fmva_result and fmva_result["iqr_ratio"] > 0.6:
+        steps.append("Re-tester les hypotheses VC et DCF (croissance, multiple, WACC).")
+    steps.append("Faire signer la convention de confidentialite.")
+    return steps
+
 
 AXIS_WEIGHTS: dict[str, float] = {
     "Innovation et Proposition de valeur": 0.18,
@@ -1890,6 +2300,225 @@ def assessment_excel(payload: dict[str, Any]) -> io.BytesIO:
     return buffer
 
 
+def committee_pdf(
+    payload: dict[str, Any],
+    scorecard: dict[str, Any],
+    rationales: dict[str, dict[str, Any]] | None = None,
+    overall: dict[str, Any] | None = None,
+) -> io.BytesIO:
+    """Render the committee scorecard as a fully argued PDF report."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Image, KeepTogether, ListFlowable, ListItem, PageBreak, Paragraph,
+        SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        topMargin=15 * mm, bottomMargin=15 * mm,
+        leftMargin=16 * mm, rightMargin=16 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle("CTitle", parent=styles["Title"], textColor=colors.HexColor(NAVY))
+    h2 = ParagraphStyle("CH2", parent=styles["Heading2"], textColor=colors.HexColor(NAVY), spaceAfter=4)
+    h3 = ParagraphStyle("CH3", parent=styles["Heading3"], textColor=colors.HexColor(RED), spaceAfter=2)
+    body = styles["BodyText"]
+    small = ParagraphStyle("Small", parent=body, fontSize=8, textColor=colors.HexColor(MUTED))
+    elements: list[Any] = []
+
+    if os.path.exists(LOGO_FILE):
+        try:
+            elements.append(Image(LOGO_FILE, width=42 * mm, height=17 * mm))
+            elements.append(Spacer(1, 6))
+        except Exception:
+            pass
+
+    elements.append(Paragraph("Rapport de comite - Grille VAIR", title))
+    elements.append(Paragraph(
+        f"<b>{payload.get('name', '')}</b> | {payload.get('sector', '')} | "
+        f"{payload.get('region', '')} | {dt.date.today():%d %b %Y}", body))
+    if payload.get("evaluator"):
+        elements.append(Paragraph(f"Evaluateur : {payload['evaluator']}", small))
+    elements.append(Spacer(1, 6))
+
+    if overall:
+        rec_color = overall.get("color", NAVY)
+        elements.append(Paragraph(
+            f"<font color='{rec_color}'><b>Recommandation : {overall['action']}</b></font>", h2))
+        elements.append(Paragraph(
+            f"Note globale ponderee : <b>{scorecard['global_note']}/5</b> "
+            f"({scorecard['recommendation']})", body))
+        for line in overall.get("rationale", []):
+            elements.append(Paragraph(f"- {line}", body))
+        elements.append(Spacer(1, 6))
+        if overall.get("next_steps"):
+            elements.append(Paragraph("Prochaines etapes", h3))
+            for step in overall["next_steps"]:
+                elements.append(Paragraph(f"- {step}", body))
+            elements.append(Spacer(1, 6))
+    else:
+        elements.append(Paragraph(
+            f"Note globale ponderee : <b>{scorecard['global_note']}/5</b> "
+            f"({scorecard['recommendation']})", h2))
+        elements.append(Spacer(1, 6))
+
+    rows = [["Axe", "Ponderation", "Note /5"]]
+    for ax in scorecard["axes"]:
+        rows.append([ax["axis"], f"{ax['weight']:.0%}", str(ax["note"])])
+    summary_table = Table(rows, colWidths=[100 * mm, 30 * mm, 25 * mm])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor(LINE)),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor(LIGHT)]),
+        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 8))
+
+    for ax in scorecard["axes"]:
+        block_elements: list[Any] = [
+            Paragraph(f"{ax['axis']} - Note {ax['note']}/5", h2),
+        ]
+        rat = (rationales or {}).get(ax["axis"]) or {}
+        if rat.get("summary"):
+            block_elements.append(Paragraph(rat["summary"], body))
+        crit_rows = [["Critere", "Note", "Niveau atteint"]]
+        for crit in ax["criteria"]:
+            anchor = _anchor_for(ax["axis"], crit["name"], crit["score"])
+            crit_rows.append([crit["name"], f"{crit['score']}/5", anchor])
+        crit_table = Table(crit_rows, colWidths=[55 * mm, 15 * mm, 90 * mm])
+        crit_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(RED)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor(LINE)),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor(LIGHT)]),
+            ("ALIGN", (1, 1), (1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        block_elements.append(crit_table)
+        if rat.get("strengths"):
+            block_elements.append(Paragraph("<b>Points forts</b>", small))
+            for s in rat["strengths"]:
+                block_elements.append(Paragraph(f"- {s}", small))
+        if rat.get("gaps"):
+            block_elements.append(Paragraph("<b>Points faibles</b>", small))
+            for g in rat["gaps"]:
+                block_elements.append(Paragraph(f"- {g}", small))
+        if rat.get("advice"):
+            block_elements.append(Paragraph(f"<i>Conseil : {rat['advice']}</i>", small))
+        block_elements.append(Spacer(1, 6))
+        elements.append(KeepTogether(block_elements))
+
+    elements.append(Paragraph(
+        "<font size=8 color='#6B7280'>Document genere automatiquement par CDC LAUNCHPAD. "
+        "Decision finale soumise a la validation du comite.</font>", body))
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+
+def fmva_pdf(
+    payload: dict[str, Any],
+    fmva: dict[str, Any],
+    result: dict[str, Any],
+    overall: dict[str, Any] | None = None,
+) -> io.BytesIO:
+    """Render the FMVA valuation as an argued PDF report."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        topMargin=15 * mm, bottomMargin=15 * mm,
+        leftMargin=16 * mm, rightMargin=16 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle("FTitle", parent=styles["Title"], textColor=colors.HexColor(NAVY))
+    h2 = ParagraphStyle("FH2", parent=styles["Heading2"], textColor=colors.HexColor(NAVY))
+    body = styles["BodyText"]
+    small = ParagraphStyle("Sm", parent=body, fontSize=8, textColor=colors.HexColor(MUTED))
+    elements: list[Any] = []
+
+    if os.path.exists(LOGO_FILE):
+        try:
+            elements.append(Image(LOGO_FILE, width=42 * mm, height=17 * mm))
+            elements.append(Spacer(1, 6))
+        except Exception:
+            pass
+    elements.append(Paragraph("Rapport de valorisation FMVA", title))
+    elements.append(Paragraph(
+        f"<b>{payload.get('name', '')}</b> | {payload.get('sector', '')} | "
+        f"{dt.date.today():%d %b %Y}", body))
+    elements.append(Spacer(1, 6))
+
+    elements.append(Paragraph(
+        f"<b>Ensemble (USD)</b> : ${result['ensemble_usd']:,.0f} "
+        f"(<b>{result['ensemble_tnd']:,.0f} TND</b>)", h2))
+    elements.append(Paragraph(
+        f"Fourchette des 5 methodes : ${result['low_usd']:,.0f} - "
+        f"${result['high_usd']:,.0f} | IQR {result['iqr_ratio']:.0%} | "
+        f"{'REVUE REQUISE' if result['review_flag'] else 'Convergent'}", body))
+    if overall:
+        elements.append(Paragraph(
+            f"<font color='{overall['color']}'><b>Recommandation : "
+            f"{overall['action']}</b></font>", h2))
+        for line in overall.get("rationale", []):
+            elements.append(Paragraph(f"- {line}", body))
+        elements.append(Spacer(1, 6))
+
+    rows = [["Methode", "USD", "TND", "Poids"]]
+    for m, v in result["methods_usd"].items():
+        rows.append([m, f"${v:,.0f}",
+                     f"{result['methods_tnd'][m]:,.0f}",
+                     f"{ENSEMBLE_WEIGHTS[m]:.0%}"])
+    rows.append(["ENSEMBLE", f"${result['ensemble_usd']:,.0f}",
+                 f"{result['ensemble_tnd']:,.0f}", "100%"])
+    table = Table(rows, colWidths=[55 * mm, 35 * mm, 35 * mm, 22 * mm])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor(LINE)),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor(LIGHT)]),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor(RED)),
+        ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+    ]))
+    elements.append(table)
+    elements.append(Spacer(1, 8))
+
+    elements.append(Paragraph("Detail par methode", h2))
+    for m, v in result["methods_usd"].items():
+        elements.append(Paragraph(f"<b>{m}</b>", body))
+        elements.append(Paragraph(method_rationale(m, v, fmva, result), body))
+        elements.append(Spacer(1, 4))
+
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph(
+        "<font size=8 color='#6B7280'>Document genere automatiquement par CDC LAUNCHPAD. "
+        "Hypotheses a re-tester par le comite avant decision.</font>", body))
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+
 def portfolio_pdf(df: pd.DataFrame, summary: pd.DataFrame) -> io.BytesIO:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -1972,97 +2601,236 @@ def _inject_css() -> None:
     st.markdown(
         f"""
         <style>
+        :root {{
+            --navy: {NAVY};
+            --red: {RED};
+            --gold: {GOLD};
+            --teal: {TEAL};
+            --violet: {VIOLET};
+            --rose: {ROSE};
+            --blue: {BLUE};
+            --amber: {AMBER};
+            --green: {GREEN};
+            --ink: {INK};
+            --muted: {MUTED};
+            --line: {LINE};
+            --light: {LIGHT};
+        }}
         .stApp {{
-            background: {LIGHT};
+            background:
+              radial-gradient(1100px 600px at -10% -20%, rgba(39,46,95,0.10), transparent 60%),
+              radial-gradient(900px 500px at 110% 0%, rgba(209,10,17,0.07), transparent 55%),
+              linear-gradient(180deg, #FBFBFE 0%, {LIGHT} 100%);
             color: {INK};
         }}
-        h1, h2, h3 {{
+        h1, h2, h3, h4 {{
             color: {NAVY};
-            letter-spacing: 0;
+            letter-spacing: -0.01em;
         }}
         .block-container {{
-            padding-top: 1.2rem;
-            padding-bottom: 2rem;
-            max-width: 1380px;
+            padding-top: 1.0rem;
+            padding-bottom: 2.2rem;
+            max-width: 1420px;
         }}
-        .cdc-header {{
-            display: flex;
-            align-items: center;
-            gap: 1.25rem;
-            border-bottom: 4px solid {RED};
-            padding: 0.7rem 0 1rem 0;
+        /* Hero with animated logo */
+        .cdc-hero {{
+            position: relative;
+            overflow: hidden;
+            border-radius: 18px;
+            padding: 1.4rem 1.6rem;
             margin-bottom: 1rem;
-        }}
-        .cdc-title {{
-            font-size: clamp(1.65rem, 3vw, 2.6rem);
-            line-height: 1.05;
-            color: {NAVY};
-            font-weight: 800;
-            margin: 0;
-        }}
-        .cdc-subtitle {{
-            color: {MUTED};
-            margin: 0.2rem 0 0 0;
-            font-size: 1rem;
-        }}
-        .cdc-logo {{
-            max-width: 150px;
-            min-width: 110px;
-        }}
-        .metric-card {{
-            background: white;
-            border: 1px solid {LINE};
-            border-radius: 8px;
-            padding: 0.85rem 1rem;
-            min-height: 96px;
-        }}
-        .metric-label {{
-            color: {MUTED};
-            font-size: 0.82rem;
-            margin-bottom: 0.25rem;
-        }}
-        .metric-value {{
-            color: {NAVY};
-            font-size: 1.55rem;
-            line-height: 1.2;
-            font-weight: 800;
-        }}
-        .alert-box {{
-            background: white;
-            border: 1px solid {LINE};
-            border-left: 6px solid {BLUE};
-            border-radius: 8px;
-            padding: 0.9rem 1rem;
-            margin: 0.5rem 0 1rem 0;
-        }}
-        .alert-title {{
-            font-weight: 800;
-            color: {INK};
-            margin-bottom: 0.35rem;
-        }}
-        .small-muted {{
-            color: {MUTED};
-            font-size: 0.85rem;
-        }}
-        div[data-testid="stMetricValue"] {{
-            color: {NAVY};
-        }}
-        .stButton>button, .stDownloadButton>button {{
-            border-radius: 8px;
-            border: 1px solid {NAVY};
-            background: {NAVY};
+            background:
+              radial-gradient(800px 300px at 90% -10%, rgba(255,255,255,0.18), transparent 70%),
+              linear-gradient(135deg, {NAVY} 0%, #1B2150 45%, #471019 100%);
             color: white;
-            font-weight: 700;
+            box-shadow: 0 22px 60px -28px rgba(39,46,95,0.55), 0 1px 0 rgba(255,255,255,0.06) inset;
+        }}
+        .cdc-hero::after {{
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.20));
+            pointer-events: none;
+        }}
+        .cdc-hero-row {{
+            position: relative; z-index: 2;
+            display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; align-items: center;
+        }}
+        @media (max-width: 900px) {{
+            .cdc-hero-row {{ grid-template-columns: 1fr; }}
+        }}
+        .cdc-hero h1 {{
+            font-size: clamp(1.7rem, 3vw, 2.6rem);
+            color: white;
+            margin: 0 0 0.4rem 0;
+            font-weight: 800;
+        }}
+        .cdc-hero p.tagline {{
+            margin: 0; color: rgba(255,255,255,0.85);
+            font-size: 1.02rem; line-height: 1.45;
+        }}
+        .cdc-hero .badges {{ margin-top: 0.7rem; display:flex; flex-wrap:wrap; gap: 0.4rem; }}
+        .cdc-hero .badge {{
+            display:inline-flex; align-items:center; gap:0.35rem;
+            background: rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.22);
+            color:white; padding:0.25rem 0.65rem; border-radius:999px;
+            font-size:0.78rem; font-weight:600;
+        }}
+        .cdc-hero .badge .dot {{ width:6px; height:6px; border-radius:50%; background:{GOLD}; }}
+        .cdc-hero-logo {{
+            display:flex; align-items:center; justify-content:center;
+            padding: 8px; border-radius: 16px; background: rgba(255,255,255,0.06);
+            border:1px solid rgba(255,255,255,0.12);
+            min-height: 160px;
+        }}
+        .cdc-hero-logo video, .cdc-hero-logo img {{
+            width: 100%; max-width: 260px; max-height: 180px; height: auto; border-radius: 12px;
+        }}
+        /* KPI strip */
+        .kpi-strip {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 0.7rem; margin: 0.4rem 0 1.1rem 0;
+        }}
+        .kpi {{
+            position: relative;
+            background: white; border:1px solid {LINE}; border-radius: 14px;
+            padding: 0.9rem 1rem; min-height: 96px;
+            box-shadow: 0 12px 30px -22px rgba(39,46,95,0.45);
+            transition: transform 180ms ease, box-shadow 180ms ease;
+            overflow: hidden;
+        }}
+        .kpi:hover {{
+            transform: translateY(-3px);
+            box-shadow: 0 20px 40px -22px rgba(39,46,95,0.55);
+        }}
+        .kpi .bar {{
+            position: absolute; left:0; top:0; bottom:0; width:5px;
+            background: linear-gradient(180deg, var(--c1), var(--c2));
+        }}
+        .kpi .icon {{
+            display:inline-flex; align-items:center; justify-content:center;
+            width:34px; height:34px; border-radius:9px;
+            background: linear-gradient(135deg, var(--c1), var(--c2)); color: white;
+            font-weight: 800; margin-bottom: 0.5rem;
+        }}
+        .kpi-label {{ color: {MUTED}; font-size: 0.8rem; }}
+        .kpi-value {{ color: {NAVY}; font-size: 1.65rem; font-weight: 800; line-height: 1.1; }}
+        .kpi-sub {{ color: {MUTED}; font-size: 0.78rem; margin-top: 0.15rem; }}
+        /* Article cards "A la une" */
+        .alaune-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 0.85rem; margin: 0.4rem 0 1rem 0;
+        }}
+        .alaune {{
+            border-radius: 14px; overflow:hidden; background: white;
+            border: 1px solid {LINE};
+            box-shadow: 0 12px 30px -24px rgba(39,46,95,0.45);
+            transition: transform 200ms ease, box-shadow 200ms ease;
+            display:flex; flex-direction:column; height:100%;
+        }}
+        .alaune:hover {{ transform: translateY(-3px); box-shadow: 0 22px 44px -22px rgba(39,46,95,0.55); }}
+        .alaune .cover {{
+            height: 96px; position: relative;
+            background: linear-gradient(135deg, var(--c1), var(--c2));
+            display:flex; align-items:center; justify-content:space-between; padding: 0.65rem 0.9rem;
+        }}
+        .alaune .cover::after {{
+            content:''; position:absolute; inset:0;
+            background: radial-gradient(220px 110px at 90% 20%, rgba(255,255,255,0.30), transparent 60%);
+        }}
+        .alaune .cover .tag {{
+            background: rgba(255,255,255,0.18); color:white;
+            padding: 0.2rem 0.55rem; border-radius: 999px;
+            font-size: 0.72rem; font-weight: 700; backdrop-filter: blur(6px);
+        }}
+        .alaune .cover .src {{
+            color: rgba(255,255,255,0.95); font-size: 0.78rem; font-weight: 600;
+        }}
+        .alaune .body {{ padding: 0.9rem 1rem 0.95rem 1rem; display:flex; flex-direction:column; gap: 0.45rem; flex:1; }}
+        .alaune .body h4 {{ margin: 0; font-size: 0.98rem; color: {NAVY}; font-weight: 800; line-height: 1.25; }}
+        .alaune .body p {{ margin: 0; color: {INK}; font-size: 0.85rem; line-height: 1.45; }}
+        .alaune .body a {{
+            margin-top: auto; align-self: flex-start;
+            color: {RED}; font-weight: 700; font-size: 0.83rem; text-decoration: none;
+        }}
+        .alaune .body a:hover {{ text-decoration: underline; }}
+        /* Section heading */
+        .section-h {{
+            display:flex; align-items:center; gap: 0.6rem;
+            margin: 1.0rem 0 0.5rem 0;
+        }}
+        .section-h .pill {{
+            background: linear-gradient(135deg, {NAVY}, {RED}); color: white;
+            border-radius: 999px; padding: 0.25rem 0.75rem; font-size:0.78rem; font-weight:700;
+        }}
+        .section-h h3 {{ margin: 0; }}
+        /* Recommendation banner */
+        .rec-banner {{
+            border-radius: 14px; padding: 1rem 1.2rem; color: white;
+            display:flex; justify-content:space-between; align-items:center; gap: 1rem;
+            box-shadow: 0 18px 40px -22px rgba(0,0,0,0.5);
+        }}
+        .rec-banner h3 {{ margin:0; color: white; }}
+        .rec-banner .verdict {{ font-size: 1.55rem; font-weight: 800; }}
+        /* Portfolio mini cards */
+        .pf-grid {{
+            display:grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr));
+            gap: 0.6rem; margin-top: 0.5rem;
+        }}
+        .pf {{ background:white; border:1px solid {LINE}; border-radius: 12px; padding:0.75rem 0.9rem;
+              transition: transform 160ms ease, border-color 160ms ease; }}
+        .pf:hover {{ transform: translateY(-2px); border-color: {NAVY}; }}
+        .pf .name {{ font-weight:800; color:{NAVY}; font-size: 0.93rem; }}
+        .pf .meta {{ font-size:0.78rem; color:{MUTED}; margin-top: 0.15rem; }}
+        .pf .chips {{ margin-top: 0.4rem; display:flex; flex-wrap:wrap; gap: 0.25rem; }}
+        .pf .chip {{ background:{LIGHT}; color:{INK}; font-size:0.7rem; padding:0.12rem 0.45rem; border-radius:999px; border:1px solid {LINE}; }}
+        .pf .chip.funded {{ background: rgba(34,122,74,0.10); color:{GREEN}; border-color: rgba(34,122,74,0.30); }}
+        /* Alerts */
+        .alert-box {{
+            background: white; border: 1px solid {LINE}; border-left: 6px solid {BLUE};
+            border-radius: 10px; padding: 0.85rem 1rem; margin: 0.4rem 0 0.8rem 0;
+        }}
+        .alert-title {{ font-weight: 800; color: {INK}; margin-bottom: 0.3rem; }}
+        .small-muted {{ color: {MUTED}; font-size: 0.85rem; }}
+        /* Buttons */
+        .stButton>button, .stDownloadButton>button {{
+            border-radius: 10px;
+            border: 1px solid {NAVY};
+            background: linear-gradient(135deg, {NAVY}, #1B2150);
+            color: white; font-weight: 700;
+            transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+            box-shadow: 0 10px 24px -16px rgba(39,46,95,0.6);
         }}
         .stButton>button:hover, .stDownloadButton>button:hover {{
+            transform: translateY(-1px); filter: brightness(1.05);
+            background: linear-gradient(135deg, {RED}, #8C0A0F);
             border-color: {RED};
-            background: {RED};
-            color: white;
         }}
+        /* Tabs */
+        button[data-baseweb="tab"] {{
+            font-weight: 700 !important;
+        }}
+        button[data-baseweb="tab"][aria-selected="true"] {{
+            color: {RED} !important;
+        }}
+        div[data-testid="stMetricValue"] {{ color: {NAVY}; }}
         </style>
         """,
         unsafe_allow_html=True,
     )
+
+
+_TONE_GRADIENTS: dict[str, tuple[str, str]] = {
+    "navy": (NAVY, "#1B2150"),
+    "red": (RED, "#8C0A0F"),
+    "gold": (GOLD, "#8C7415"),
+    "teal": (TEAL, "#067067"),
+    "violet": (VIOLET, "#4C1D95"),
+    "rose": (ROSE, "#831238"),
+    "blue": (BLUE, "#1E3A8A"),
+    "amber": (AMBER, "#7A4F0F"),
+    "green": (GREEN, "#0E4A2A"),
+}
 
 
 def _metric(label: str, value: str, help_text: str = "") -> None:
@@ -2102,18 +2870,46 @@ def _header(lang: str) -> None:
     import base64
     import streamlit as st
 
-    logo_html = ""
-    if os.path.exists(LOGO_FILE):
-        with open(LOGO_FILE, "rb") as file:
-            encoded = base64.b64encode(file.read()).decode("ascii")
-        logo_html = f"<img class='cdc-logo' src='data:image/png;base64,{encoded}' alt='CDC logo'>"
+    media_html = ""
+    if os.path.exists(LOGO_ANIMATION):
+        with open(LOGO_ANIMATION, "rb") as fh:
+            encoded = base64.b64encode(fh.read()).decode("ascii")
+        media_html = (
+            f"<video autoplay loop muted playsinline preload='auto' "
+            f"poster=''><source src='data:video/mp4;base64,{encoded}' type='video/mp4'></video>"
+        )
+    elif os.path.exists(LOGO_FILE):
+        with open(LOGO_FILE, "rb") as fh:
+            encoded = base64.b64encode(fh.read()).decode("ascii")
+        media_html = f"<img src='data:image/png;base64,{encoded}' alt='CDC'>"
+
+    tagline = (
+        "Plateforme decisionnelle IA pour l'evaluation et la valorisation des "
+        "startups tunisiennes - scoring comite, FMVA, learning loop temps reel."
+        if lang == "FR"
+        else "AI decisioning platform for Tunisian startup assessment and "
+             "valuation - committee scoring, FMVA, live learning loop."
+    )
+    badges = (
+        ("Caisse des Depots", GOLD),
+        ("VAIR / Greentech", TEAL),
+        ("Smart Capital", RED),
+        ("Startup Act", NAVY),
+    )
+    badge_html = "".join(
+        f"<span class='badge'><span class='dot' style='background:{c}'></span>{label}</span>"
+        for label, c in badges
+    )
     st.markdown(
         f"""
-        <div class="cdc-header">
-            {logo_html}
-            <div>
-                <div class="cdc-title">CDC LAUNCHPAD</div>
-                <p class="cdc-subtitle">{t("subtitle", lang)}</p>
+        <div class="cdc-hero">
+            <div class="cdc-hero-row">
+                <div class="cdc-hero-logo">{media_html}</div>
+                <div>
+                    <h1>CDC LAUNCHPAD</h1>
+                    <p class="tagline">{tagline}</p>
+                    <div class="badges">{badge_html}</div>
+                </div>
             </div>
         </div>
         """,
@@ -2186,20 +2982,59 @@ def run_app() -> None:
     _header(lang)
 
     if not session.auth:
-        st.subheader(t("access", lang))
+        st.markdown(
+            "<div class='section-h'><span class='pill'>Acces securise</span>"
+            "<h3>Authentification a deux etapes</h3></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Saisissez votre email professionnel pour recevoir un code a usage unique "
+            "(6 chiffres, valide 20 minutes). Aucun code n'est affiche a l'ecran."
+            if lang == "FR"
+            else "Enter your professional email to receive a one-time 6-digit code "
+                 "(valid 20 minutes). No code is shown on screen."
+        )
         left, right = st.columns([1, 1])
         with left:
-            st.text_input(t("email", lang), placeholder="name@cdc.tn")
-            if st.button(t("request", lang), use_container_width=True):
-                st.info(f"{t('sent', lang)} {ADMIN_EMAIL}. Demo code: {ACCESS_CODE}")
+            email_value = st.text_input(t("email", lang),
+                                        value=session.get("auth_email", ""),
+                                        placeholder="name@cdc.tn",
+                                        key="auth_email_input")
+            if st.button(t("request", lang), use_container_width=True, key="req_code_btn"):
+                email_clean = email_value.strip().lower()
+                if "@" not in email_clean or "." not in email_clean.split("@")[-1]:
+                    st.error("Adresse email invalide." if lang == "FR" else "Invalid email address.")
+                else:
+                    issued = issue_access_code(email_clean)
+                    session["auth_issued"] = issued
+                    session["auth_email"] = email_clean
+                    if issued["ok"]:
+                        st.success(
+                            ("Code envoye. Verifiez votre boite de reception."
+                             if lang == "FR"
+                             else "Code sent. Check your inbox.")
+                        )
+                    else:
+                        st.error("Envoi impossible. Contactez l'administrateur."
+                                 if lang == "FR" else "Could not send code. Contact admin.")
         with right:
-            code = st.text_input(t("code", lang), type="password")
-            if st.button(t("enter", lang), use_container_width=True):
-                if code == ACCESS_CODE:
+            code = st.text_input(t("code", lang), type="password", key="auth_code_input",
+                                 placeholder="6 chiffres")
+            if st.button(t("enter", lang), use_container_width=True, key="enter_btn"):
+                issued = session.get("auth_issued")
+                if not issued:
+                    st.error("Demandez d'abord un code." if lang == "FR" else "Request a code first.")
+                elif verify_access_code(session.get("auth_email", ""), code.strip(), issued):
                     session.auth = True
+                    session["auth_issued"] = None
                     st.rerun()
                 else:
                     st.error(t("bad_code", lang))
+        st.caption(
+            f"Administrateur : {ADMIN_EMAIL} - support@cdc.tn"
+            if lang == "FR"
+            else f"Administrator: {ADMIN_EMAIL} - support@cdc.tn"
+        )
         st.stop()
 
     tabs = st.tabs(
@@ -2215,54 +3050,169 @@ def run_app() -> None:
     )
 
     with tabs[0]:
-        _kpi_row(df, bundle)
-        st.markdown("### Tunisian startup ecosystem")
-        left, right = st.columns([1.25, 1])
-        with left:
+        kpi_values = compute_impact_kpis(df)
+        kpi_html_parts = []
+        for kpi in IMPACT_KPI_DEFINITIONS:
+            v = kpi_values.get(kpi["key"], {"value": 0, "secondary": ""})
+            c1, c2 = _TONE_GRADIENTS.get(kpi["tone"], (NAVY, "#1B2150"))
+            kpi_html_parts.append(
+                f"<div class='kpi' style='--c1:{c1}; --c2:{c2}'>"
+                f"<span class='bar'></span>"
+                f"<div class='icon'>{kpi['icon']}</div>"
+                f"<div class='kpi-label'>{kpi['label']}</div>"
+                f"<div class='kpi-value'>{v['value']:,}</div>"
+                f"<div class='kpi-sub'>{v['secondary']}</div>"
+                f"</div>"
+            )
+        st.markdown(
+            "<div class='section-h'><span class='pill'>A la une</span>"
+            "<h3>Pouls de l'ecosysteme tunisien</h3></div>"
+            f"<div class='kpi-strip'>{''.join(kpi_html_parts)}</div>",
+            unsafe_allow_html=True,
+        )
+
+        article_cards = []
+        for art in ECOSYSTEM_ARTICLES:
+            c1, c2 = _TONE_GRADIENTS.get(art["color"], (NAVY, "#1B2150"))
+            article_cards.append(
+                f"<div class='alaune'>"
+                f"  <div class='cover' style='--c1:{c1}; --c2:{c2}'>"
+                f"    <span class='tag'>{art['tag']}</span>"
+                f"    <span class='src'>{art['source']}</span>"
+                f"  </div>"
+                f"  <div class='body'>"
+                f"    <h4>{art['title']}</h4>"
+                f"    <p>{art['summary']}</p>"
+                f"    <a href='{art['url']}' target='_blank' rel='noopener'>Ouvrir la source &nbsp;&rsaquo;</a>"
+                f"  </div>"
+                f"</div>"
+            )
+        st.markdown(
+            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#0FB5A6,#067067)'>Veille</span>"
+            "<h3>Initiatives, fonds et programmes a suivre</h3></div>"
+            f"<div class='alaune-grid'>{''.join(article_cards)}</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#C9A227,#8C7415)'>Carte sectorielle</span>"
+            "<h3>Top secteurs dans le portefeuille CDC</h3></div>",
+            unsafe_allow_html=True,
+        )
+        c_left, c_right = st.columns([1.25, 1])
+        with c_left:
             top = df["sector"].value_counts().head(12).sort_values()
-            st.bar_chart(top, color=RED)
-        with right:
-            st.markdown("#### Live ecosystem watch")
-            for item in fetch_news():
-                if item["link"]:
-                    st.markdown(f"- [{item['title']}]({item['link']})")
-                else:
-                    st.markdown(f"- {item['title']}")
+            st.bar_chart(top, color=RED, height=320)
+        with c_right:
+            st.markdown("**Dynamique annuelle**")
+            years = pd.to_numeric(df["founding_year"], errors="coerce").dropna().astype(int)
+            yearly = years.value_counts().sort_index().tail(15)
+            st.line_chart(yearly, color=NAVY, height=320)
 
     with tabs[1]:
-        st.markdown("### Portfolio dashboard")
-        _kpi_row(df, bundle)
-        left, right = st.columns(2)
-        with left:
-            sector_counts = df["sector"].value_counts().head(15)
-            st.dataframe(
-                sector_counts.rename_axis("Sector").reset_index(name="Startups"),
-                use_container_width=True,
-                hide_index=True,
+        st.markdown(
+            "<div class='section-h'><span class='pill'>Portefeuille</span>"
+            "<h3>Cartographie interactive du portefeuille</h3></div>",
+            unsafe_allow_html=True,
+        )
+        kpi_values = compute_impact_kpis(df)
+        kpi_html_parts = []
+        for kpi in IMPACT_KPI_DEFINITIONS[:4]:
+            v = kpi_values.get(kpi["key"], {"value": 0, "secondary": ""})
+            c1, c2 = _TONE_GRADIENTS.get(kpi["tone"], (NAVY, "#1B2150"))
+            kpi_html_parts.append(
+                f"<div class='kpi' style='--c1:{c1}; --c2:{c2}'>"
+                f"<span class='bar'></span><div class='icon'>{kpi['icon']}</div>"
+                f"<div class='kpi-label'>{kpi['label']}</div>"
+                f"<div class='kpi-value'>{v['value']:,}</div>"
+                f"<div class='kpi-sub'>{v['secondary']}</div></div>"
             )
-        with right:
-            years = pd.to_numeric(df["founding_year"], errors="coerce").dropna().astype(int)
-            st.line_chart(years.value_counts().sort_index().tail(20), color=NAVY)
-        st.markdown("### Segments")
-        st.dataframe(
-            segment_summary.rename(
-                columns={
+        st.markdown(f"<div class='kpi-strip'>{''.join(kpi_html_parts)}</div>",
+                    unsafe_allow_html=True)
+
+        f1, f2, f3 = st.columns([1.2, 1, 1])
+        sector_filter = f1.multiselect(
+            "Filtrer par secteur",
+            sorted(df["sector"].dropna().astype(str).unique()),
+            placeholder="Tous secteurs",
+        )
+        region_filter = f2.multiselect(
+            "Region",
+            sorted(df.get("Region", pd.Series([], dtype=str)).dropna().astype(str).unique()) if "Region" in df.columns else [],
+            placeholder="Toutes regions",
+        )
+        only_funded = f3.toggle("Financees uniquement", value=False)
+
+        filtered = segmented_df.copy()
+        if sector_filter and "Secteur" in filtered.columns:
+            filtered = filtered[filtered["Secteur"].astype(str).isin(sector_filter)]
+        elif sector_filter and "sector" in filtered.columns:
+            filtered = filtered[filtered["sector"].astype(str).isin(sector_filter)]
+        if region_filter and "Region" in filtered.columns:
+            filtered = filtered[filtered["Region"].astype(str).isin(region_filter)]
+        if only_funded and "funded" in filtered.columns:
+            filtered = filtered[filtered["funded"] == 1]
+
+        c_left, c_right = st.columns([1.4, 1])
+        with c_left:
+            st.markdown("**Repartition par secteur (filtree)**")
+            if "Secteur" in filtered.columns:
+                top = filtered["Secteur"].value_counts().head(15).sort_values()
+            else:
+                top = filtered["sector"].value_counts().head(15).sort_values()
+            st.bar_chart(top, color=NAVY, height=340)
+        with c_right:
+            st.markdown("**Segments comportementaux**")
+            st.dataframe(
+                segment_summary.rename(columns={
                     "profile": "Segment",
                     "startups": "Startups",
                     "funded_rate": "Funded %",
-                    "avg_age": "Avg age",
-                }
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.markdown("### Searchable portfolio")
-        display_cols = [
-            col
-            for col in ["Nom", "Secteur", "Region", "founding_year", "funded", "profile"]
-            if col in segmented_df.columns
-        ]
-        st.dataframe(segmented_df[display_cols].head(300), use_container_width=True, hide_index=True)
+                    "avg_age": "Age moyen",
+                }),
+                use_container_width=True, hide_index=True, height=320,
+            )
+
+        st.markdown("**Cartes startups (top 24 filtrees)**")
+        name_col = "Nom" if "Nom" in filtered.columns else None
+        secteur_col = "Secteur" if "Secteur" in filtered.columns else "sector"
+        cards_html = []
+        rows = filtered.head(24)
+        for _, r in rows.iterrows():
+            name = str(r.get(name_col, "(sans nom)")) if name_col else "(sans nom)"
+            sector = str(r.get(secteur_col, ""))
+            region = str(r.get("Region", "")) if "Region" in filtered.columns else ""
+            year = r.get("founding_year", "")
+            try:
+                year_str = f"{int(year)}" if pd.notna(year) and year else "-"
+            except Exception:
+                year_str = "-"
+            chips = []
+            if sector:
+                chips.append(f"<span class='chip'>{sector[:24]}</span>")
+            if region:
+                chips.append(f"<span class='chip'>{region[:18]}</span>")
+            if "funded" in filtered.columns and int(r.get("funded", 0)) == 1:
+                chips.append("<span class='chip funded'>Financee</span>")
+            if "profile" in filtered.columns and r.get("profile"):
+                chips.append(f"<span class='chip'>{str(r.get('profile'))[:20]}</span>")
+            cards_html.append(
+                f"<div class='pf'>"
+                f"<div class='name'>{name}</div>"
+                f"<div class='meta'>Fondee en {year_str}</div>"
+                f"<div class='chips'>{''.join(chips)}</div>"
+                f"</div>"
+            )
+        st.markdown(f"<div class='pf-grid'>{''.join(cards_html)}</div>",
+                    unsafe_allow_html=True)
+
+        with st.expander("Table detaillee (jusqu'a 500 lignes filtrees)", expanded=False):
+            display_cols = [
+                col for col in ["Nom", "Secteur", "Region", "founding_year", "funded", "profile"]
+                if col in filtered.columns
+            ]
+            st.dataframe(filtered[display_cols].head(500),
+                         use_container_width=True, hide_index=True, height=400)
 
     with tabs[2]:
         st.markdown("### Startup assessment")
@@ -2430,30 +3380,83 @@ def run_app() -> None:
                     st.caption(f"→ {crit['anchors'][new]}")
 
         scorecard = committee_scorecard(scores_state)
-        st.markdown("### Synthèse")
-        sc1, sc2, sc3 = st.columns([1, 1, 2])
-        tone_color = {"ok": GREEN, "warn": AMBER, "bad": RED}[scorecard["tone"]]
-        sc1.metric("Note globale", f"{scorecard['global_note']:.2f} / 5")
-        sc2.markdown(
-            f"<h3 style='color:{tone_color};margin-top:0'>{scorecard['recommendation']}</h3>",
+        rationales = {ax["axis"]: axis_rationale(
+            ax["axis"], {c["name"]: c["score"] for c in ax["criteria"]}
+        ) for ax in scorecard["axes"]}
+        last_score = float((session.get("last_assessment") or {}).get("score", 0.0))
+        last_fmva = session.get("last_fmva")
+        overall = overall_recommendation(last_score, scorecard, last_fmva)
+        session["last_overall"] = overall
+        session["last_rationales"] = rationales
+
+        st.markdown(
+            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#D10A11,#8C0A0F)'>Synthese</span>"
+            "<h3>Verdict et justification du comite</h3></div>",
             unsafe_allow_html=True,
         )
-        synth_rows = pd.DataFrame(
-            [
-                {"Axe": ax["axis"], "Pondération": f"{ax['weight']:.0%}", "Note": ax["note"]}
-                for ax in scorecard["axes"]
-            ]
+        c1_g, c2_g = _TONE_GRADIENTS["green" if overall["tone"] == "ok" else ("amber" if overall["tone"] == "warn" else "red")]
+        rationale_html = "".join(f"<div>- {x}</div>" for x in overall["rationale"])
+        st.markdown(
+            f"<div class='rec-banner' style='background:linear-gradient(135deg,{c1_g},{c2_g})'>"
+            f"<div><div style='opacity:.85;font-size:.85rem'>Recommandation</div>"
+            f"<div class='verdict'>{overall['action']}</div></div>"
+            f"<div style='font-size:.88rem;max-width:60%'>{rationale_html}</div>"
+            "</div>",
+            unsafe_allow_html=True,
         )
-        st.dataframe(synth_rows, use_container_width=True, hide_index=True)
+
+        sc1, sc2, sc3 = st.columns([1, 1, 1])
+        sc1.metric("Note globale", f"{scorecard['global_note']:.2f} / 5")
+        sc2.metric("Score modele", f"{last_score:.1f}/100" if last_score else "n/d")
+        sc3.metric("FMVA IQR",
+                   f"{last_fmva['iqr_ratio']:.0%}" if last_fmva else "n/d",
+                   "Revue" if last_fmva and last_fmva["review_flag"] else None)
+
+        radar_df = pd.DataFrame({
+            "Note": [ax["note"] for ax in scorecard["axes"]],
+        }, index=[ax["axis"][:30] for ax in scorecard["axes"]])
+        st.markdown("**Profil par axe**")
+        st.bar_chart(radar_df, color=NAVY, height=260)
+
+        st.markdown("**Justification axe par axe**")
+        for ax in scorecard["axes"]:
+            rat = rationales[ax["axis"]]
+            with st.expander(f"{ax['axis']} - {ax['note']}/5", expanded=False):
+                st.write(rat["summary"])
+                if rat["strengths"]:
+                    st.markdown("**Points forts**")
+                    for s in rat["strengths"]:
+                        st.markdown(f"- {s}")
+                if rat["gaps"]:
+                    st.markdown("**Points faibles**")
+                    for g in rat["gaps"]:
+                        st.markdown(f"- {g}")
+                st.info(f"Conseil : {rat['advice']}")
+
+        st.markdown("**Prochaines etapes proposees**")
+        for step in overall["next_steps"]:
+            st.markdown(f"- {step}")
 
         grid_payload = {**meta}
-        st.download_button(
-            "Télécharger la grille remplie (Excel)",
-            scoring_grid_excel(grid_payload, scorecard),
-            file_name=f"Grille_{(meta.get('name') or 'startup').replace(' ', '_')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
+        d1, d2 = st.columns(2)
+        with d1:
+            st.download_button(
+                "Grille de scoring (Excel)",
+                scoring_grid_excel(grid_payload, scorecard),
+                file_name=f"Grille_{(meta.get('name') or 'startup').replace(' ', '_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="dl_grid_committee_tab",
+            )
+        with d2:
+            st.download_button(
+                "Rapport comite (PDF)",
+                committee_pdf(grid_payload, scorecard, rationales, overall),
+                file_name=f"Rapport_comite_{(meta.get('name') or 'startup').replace(' ', '_')}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="dl_pdf_committee_tab",
+            )
         session["last_scorecard"] = scorecard
 
     with tabs[4]:
@@ -2555,38 +3558,86 @@ def run_app() -> None:
             )
 
         result = fmva_valuation(fmva)
-        st.markdown("### Ensemble")
+        session["last_fmva"] = result
+        last_score = float((session.get("last_assessment") or {}).get("score", 0.0))
+        sc_for_overall = session.get("last_scorecard") or committee_scorecard(
+            session.get("scoring_inputs") or auto_score_grid(
+                {"stage": 1, "team": 0.65, "market": 0.65, "product": 0.6,
+                 "competition": 0.5, "revenue_tnd": 0, "growth": 0.4,
+                 "is_labelled": False, "has_email": False, "has_web": False,
+                 "n_founders": 2}
+            )
+        )
+        overall = overall_recommendation(last_score, sc_for_overall, result)
+
+        st.markdown(
+            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#272E5F,#D10A11)'>Triangulation</span>"
+            "<h3>Synthese FMVA et recommandation</h3></div>",
+            unsafe_allow_html=True,
+        )
+        c1_g, c2_g = _TONE_GRADIENTS["green" if overall["tone"] == "ok" else ("amber" if overall["tone"] == "warn" else "red")]
+        rationale_html = "".join(f"<div>- {x}</div>" for x in overall["rationale"])
+        st.markdown(
+            f"<div class='rec-banner' style='background:linear-gradient(135deg,{c1_g},{c2_g})'>"
+            f"<div><div style='opacity:.85;font-size:.85rem'>Recommandation IA</div>"
+            f"<div class='verdict'>{overall['action']}</div></div>"
+            f"<div style='font-size:.88rem;max-width:60%'>{rationale_html}</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
         e1, e2, e3, e4 = st.columns(4)
         e1.metric("Ensemble (USD)", f"${result['ensemble_usd']/1e6:.2f} M")
-        e2.metric("Ensemble (TND)", f"{result['ensemble_tnd']/1e6:.2f} M TND")
-        e3.metric("Low – High (USD)",
-                  f"${result['low_usd']/1e6:.2f}–${result['high_usd']/1e6:.2f} M")
+        e2.metric("Ensemble (TND)", f"{result['ensemble_tnd']/1e6:.2f} M")
+        e3.metric("Low - High",
+                  f"${result['low_usd']/1e6:.2f}-${result['high_usd']/1e6:.2f} M")
         e4.metric("IQR ratio", f"{result['iqr_ratio']:.0%}",
-                  "Review required" if result["review_flag"] else "OK")
+                  "Revue requise" if result["review_flag"] else "OK")
         if result["review_flag"]:
-            st.warning("Spread between methods exceeds 60% of the ensemble — review recommended.")
+            st.warning("Dispersion entre methodes > 60% : retester les hypotheses VC/DCF avant decision.")
         if not result["berkus_cap_ok"]:
-            st.warning("Berkus total exceeds the USD 2.5M cap — reduce one or more factors.")
+            st.warning("Total Berkus depasse le plafond USD 2.5M - reduire un ou plusieurs facteurs.")
 
-        rows = pd.DataFrame(
-            {
-                "Method": list(result["methods_usd"].keys()),
-                "USD": [f"${v:,.0f}" for v in result["methods_usd"].values()],
-                "TND": [f"{v:,.0f}" for v in result["methods_tnd"].values()],
-                "Weight": [f"{ENSEMBLE_WEIGHTS[m]:.0%}" for m in result["methods_usd"]],
-            }
-        )
+        st.markdown("**Comparatif des methodes (USD)**")
+        chart_df = pd.DataFrame({
+            "Valorisation (USD)": list(result["methods_usd"].values()),
+        }, index=list(result["methods_usd"].keys()))
+        st.bar_chart(chart_df, color=RED, height=280)
+
+        rows = pd.DataFrame({
+            "Methode": list(result["methods_usd"].keys()),
+            "USD": [f"${v:,.0f}" for v in result["methods_usd"].values()],
+            "TND": [f"{v:,.0f}" for v in result["methods_tnd"].values()],
+            "Poids": [f"{ENSEMBLE_WEIGHTS[m]:.0%}" for m in result["methods_usd"]],
+        })
         st.dataframe(rows, use_container_width=True, hide_index=True)
 
+        st.markdown("**Justification methode par methode**")
+        for m, v in result["methods_usd"].items():
+            with st.expander(f"{m} - ${v:,.0f}", expanded=False):
+                st.write(method_rationale(m, v, fmva, result))
+
         last = session.get("last_assessment") or {}
-        st.download_button(
-            "Télécharger le workbook FMVA (Excel)",
-            fmva_workbook_excel(last, fmva, result),
-            file_name=f"FMVA_{(last.get('name') or 'startup').replace(' ', '_')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-        session["last_fmva"] = result
+        d1, d2 = st.columns(2)
+        with d1:
+            st.download_button(
+                "Workbook FMVA (Excel)",
+                fmva_workbook_excel(last, fmva, result),
+                file_name=f"FMVA_{(last.get('name') or 'startup').replace(' ', '_')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="dl_xlsx_fmva_tab",
+            )
+        with d2:
+            st.download_button(
+                "Rapport FMVA (PDF)",
+                fmva_pdf(last, fmva, result, overall),
+                file_name=f"FMVA_{(last.get('name') or 'startup').replace(' ', '_')}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="dl_pdf_fmva_tab",
+            )
+        session["last_fmva_overall"] = overall
 
     with tabs[5]:
         st.markdown("### Model performance")
@@ -2624,21 +3675,119 @@ def run_app() -> None:
             st.rerun()
 
     with tabs[6]:
-        st.markdown("### Reports")
-        st.download_button(
-            "Download portfolio PDF",
-            portfolio_pdf(df, segment_summary),
-            file_name="CDC_Portfolio_Report.pdf",
-            mime="application/pdf",
-            use_container_width=True,
+        st.markdown(
+            "<div class='section-h'><span class='pill'>Centre de rapports</span>"
+            "<h3>Tous les livrables generes par la plateforme</h3></div>",
+            unsafe_allow_html=True,
         )
-        if session.get("last_assessment"):
-            st.download_button(
-                "Download last assessment PDF",
-                assessment_pdf(session["last_assessment"]),
-                file_name="Last_Assessment.pdf",
+        last = session.get("last_assessment")
+        scorecard = session.get("last_scorecard")
+        rationales = session.get("last_rationales")
+        overall = session.get("last_overall") or session.get("last_fmva_overall")
+        fmva = session.get("fmva_inputs")
+        fmva_result = session.get("last_fmva")
+
+        if not last:
+            st.info(
+                "Lancez d'abord une evaluation dans l'onglet Assessment pour generer "
+                "tous les rapports. Le rapport portefeuille reste disponible ci-dessous."
+            )
+
+        slug = (last.get("name") if last else "startup").replace(" ", "_") or "startup"
+        st.markdown("#### Dossier startup")
+        r1, r2, r3 = st.columns(3)
+        if last:
+            r1.download_button(
+                "Assessment - PDF",
+                assessment_pdf(last),
+                file_name=f"Assessment_{slug}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
+                key="rep_assess_pdf",
+            )
+            r2.download_button(
+                "Assessment - Excel",
+                assessment_excel(last),
+                file_name=f"Assessment_{slug}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="rep_assess_xlsx",
+            )
+        else:
+            r1.button("Assessment - PDF", disabled=True, use_container_width=True, key="rep_a_pdf_disabled")
+            r2.button("Assessment - Excel", disabled=True, use_container_width=True, key="rep_a_xls_disabled")
+        if last and scorecard:
+            r3.download_button(
+                "Comite - PDF",
+                committee_pdf(
+                    {**(session.get("scoring_meta") or {}),
+                     "name": last.get("name"), "sector": last.get("sector"),
+                     "region": last.get("region")},
+                    scorecard, rationales, overall,
+                ),
+                file_name=f"Rapport_comite_{slug}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="rep_comm_pdf",
+            )
+        else:
+            r3.button("Comite - PDF", disabled=True, use_container_width=True, key="rep_c_pdf_disabled")
+
+        r4, r5, r6 = st.columns(3)
+        if scorecard:
+            r4.download_button(
+                "Comite - Grille Excel",
+                scoring_grid_excel(
+                    {**(session.get("scoring_meta") or {}),
+                     "name": (last or {}).get("name", ""),
+                     "sector": (last or {}).get("sector", ""),
+                     "region": (last or {}).get("region", "")},
+                    scorecard,
+                ),
+                file_name=f"Grille_{slug}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="rep_grid_xlsx",
+            )
+        else:
+            r4.button("Comite - Grille Excel", disabled=True, use_container_width=True, key="rep_c_xls_disabled")
+        if last and fmva and fmva_result:
+            r5.download_button(
+                "FMVA - PDF",
+                fmva_pdf(last, fmva, fmva_result, overall),
+                file_name=f"FMVA_{slug}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="rep_fmva_pdf",
+            )
+            r6.download_button(
+                "FMVA - Workbook Excel",
+                fmva_workbook_excel(last, fmva, fmva_result),
+                file_name=f"FMVA_{slug}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="rep_fmva_xlsx",
+            )
+        else:
+            r5.button("FMVA - PDF", disabled=True, use_container_width=True, key="rep_f_pdf_disabled")
+            r6.button("FMVA - Workbook Excel", disabled=True, use_container_width=True, key="rep_f_xls_disabled")
+
+        st.markdown("#### Portefeuille global")
+        p1, _ = st.columns([1, 2])
+        with p1:
+            st.download_button(
+                "Portefeuille - PDF",
+                portfolio_pdf(df, segment_summary),
+                file_name="CDC_Portfolio_Report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="rep_pf_pdf",
+            )
+
+        if last and scorecard and fmva and fmva_result:
+            st.success(
+                "Tous les livrables generes : Assessment (PDF+Excel), Comite (PDF+Excel), "
+                "FMVA (PDF+Excel), Portefeuille (PDF). Telechargeables ci-dessus."
             )
 
 

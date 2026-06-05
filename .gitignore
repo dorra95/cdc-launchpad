@@ -6,3 +6,4 @@ venv/
 .env
 .streamlit/secrets.toml
 cdc_learning_store.csv
+cdc_access_log.csv
