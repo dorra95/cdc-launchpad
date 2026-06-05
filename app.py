@@ -899,12 +899,25 @@ def _hash_code(email: str, code: str) -> str:
     return hashlib.sha256(f"{email.strip().lower()}|{code}".encode()).hexdigest()
 
 
+def _smtp_setting(key: str) -> str:
+    """Read SMTP setting from Streamlit secrets first, then env, then empty."""
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            value = st.secrets.get(key, "") if hasattr(st.secrets, "get") else ""
+            if value:
+                return str(value)
+    except Exception:
+        pass
+    return os.environ.get(key, "")
+
+
 def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
-    """Attempt SMTP send; fall back to admin log file if creds absent."""
-    host = os.environ.get("CDC_SMTP_HOST", "")
-    user = os.environ.get("CDC_SMTP_USER", "")
-    pwd = os.environ.get("CDC_SMTP_PASS", "")
-    sender = os.environ.get("CDC_SMTP_FROM", user or ADMIN_EMAIL)
+    """Attempt SMTP send; fall back to admin log + stdout if creds absent."""
+    host = _smtp_setting("CDC_SMTP_HOST")
+    user = _smtp_setting("CDC_SMTP_USER")
+    pwd = _smtp_setting("CDC_SMTP_PASS")
+    sender = _smtp_setting("CDC_SMTP_FROM") or user or ADMIN_EMAIL
     body = (
         "Bonjour,\n\nVotre code d'acces a la plateforme CDC LAUNCHPAD est : "
         f"{code}\n\nCe code expire dans {ACCESS_CODE_TTL_MIN} minutes.\n\n"
@@ -920,8 +933,18 @@ def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
                 smtp.login(user, pwd)
                 smtp.sendmail(sender, [to_addr], msg.as_string())
             return True, "email"
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[CDC LAUNCHPAD] SMTP error: {exc!r}", flush=True)
+    # Fallback: emit the code to stdout (visible in Streamlit Cloud logs) and write to a local file.
+    banner = (
+        "================================================================\n"
+        f"[CDC LAUNCHPAD] DEV-MODE ACCESS CODE (no SMTP configured)\n"
+        f"  email   : {to_addr}\n"
+        f"  code    : {code}\n"
+        f"  expires : {ACCESS_CODE_TTL_MIN} min from now\n"
+        "================================================================"
+    )
+    print(banner, flush=True)
     try:
         new = not os.path.exists(ACCESS_LOG)
         with open(ACCESS_LOG, "a", newline="", encoding="utf-8") as f:
@@ -929,9 +952,9 @@ def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
             if new:
                 w.writerow(["timestamp", "email", "code"])
             w.writerow([dt.datetime.utcnow().isoformat(), to_addr, code])
-        return True, "admin_log"
     except Exception:
-        return False, "failed"
+        pass
+    return True, "admin_log"
 
 
 def issue_access_code(email: str) -> dict[str, Any]:
@@ -3273,18 +3296,33 @@ def run_app() -> None:
                             else "Code sent by email. Check your inbox (and spam folder)."
                         )
                     elif issued["ok"] and issued["channel"] == "admin_log":
-                        st.warning(
-                            ("SMTP non configure (mode developpement). "
-                             f"L'administrateur peut recuperer le code dans le fichier "
-                             f"`{os.path.basename(ACCESS_LOG)}` situe a cote de l'application, "
-                             f"ou configurer les variables CDC_SMTP_HOST/USER/PASS/FROM pour "
-                             "activer l'envoi par email.")
-                            if lang == "FR"
-                            else ("SMTP not configured (dev mode). "
-                                  f"Admin can retrieve the code from `{os.path.basename(ACCESS_LOG)}` "
-                                  "next to the app, or set CDC_SMTP_HOST/USER/PASS/FROM "
-                                  "env vars to enable email delivery.")
-                        )
+                        if lang == "FR":
+                            st.warning(
+                                "SMTP non configure (mode developpement). "
+                                "L'administrateur peut recuperer le code de l'une des facons suivantes :"
+                            )
+                            st.markdown(
+                                "- **Streamlit Cloud** : ouvrir *Manage app* en bas a droite, "
+                                "onglet *Logs*, chercher la banniere `DEV-MODE ACCESS CODE`.\n"
+                                "- **Local** : voir le terminal ou tourne `streamlit run`, ou ouvrir le "
+                                f"fichier `{os.path.basename(ACCESS_LOG)}` a cote de `app.py`.\n"
+                                "- **Production** : ajouter les secrets `CDC_SMTP_HOST`, "
+                                "`CDC_SMTP_USER`, `CDC_SMTP_PASS`, `CDC_SMTP_FROM` "
+                                "(Streamlit Cloud : *Settings -> Secrets*) puis redemander un code."
+                            )
+                        else:
+                            st.warning(
+                                "SMTP not configured (dev mode). Admin can retrieve the code one of these ways:"
+                            )
+                            st.markdown(
+                                "- **Streamlit Cloud**: open *Manage app* (bottom-right), *Logs* tab, "
+                                "look for the `DEV-MODE ACCESS CODE` banner.\n"
+                                "- **Local**: see the terminal running `streamlit run`, or open "
+                                f"`{os.path.basename(ACCESS_LOG)}` next to `app.py`.\n"
+                                "- **Production**: add secrets `CDC_SMTP_HOST`, `CDC_SMTP_USER`, "
+                                "`CDC_SMTP_PASS`, `CDC_SMTP_FROM` (Streamlit Cloud: *Settings -> Secrets*), "
+                                "then request a new code."
+                            )
                     else:
                         st.error("Envoi impossible. Contactez l'administrateur."
                                  if lang == "FR" else "Could not send code. Contact admin.")
