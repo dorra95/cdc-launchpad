@@ -2595,6 +2595,190 @@ def portfolio_pdf(df: pd.DataFrame, summary: pd.DataFrame) -> io.BytesIO:
 # ---------------------------------------------------------------------------
 # Streamlit UI
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Interactive Plotly visualisations
+# ---------------------------------------------------------------------------
+def _plotly_layout(fig: Any, height: int = 320) -> Any:
+    fig.update_layout(
+        height=height,
+        margin=dict(l=10, r=10, t=30, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, system-ui, sans-serif", color=INK, size=12),
+        hoverlabel=dict(bgcolor="white", font_size=12, font_family="Inter"),
+    )
+    return fig
+
+
+def plotly_radar(scorecard: dict[str, Any]) -> Any:
+    """Radar / spider chart of the 7 axis notes for the committee view."""
+    import plotly.graph_objects as go
+
+    axes = [ax["axis"] for ax in scorecard["axes"]]
+    notes = [ax["note"] for ax in scorecard["axes"]]
+    short = [a if len(a) < 26 else a[:24] + "..." for a in axes]
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=notes + [notes[0]],
+        theta=short + [short[0]],
+        fill="toself",
+        line=dict(color=RED, width=2.5),
+        fillcolor=f"rgba(209,10,17,0.18)",
+        name="Notes par axe",
+        hovertemplate="<b>%{theta}</b><br>Note : %{r}/5<extra></extra>",
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=[3.5] * (len(notes) + 1),
+        theta=short + [short[0]],
+        line=dict(color=GREEN, width=1, dash="dot"),
+        name="Seuil 3.5",
+        hoverinfo="skip",
+        showlegend=True,
+    ))
+    fig.update_layout(
+        polar=dict(
+            bgcolor="rgba(247,248,252,0.6)",
+            radialaxis=dict(visible=True, range=[0, 5], tickfont=dict(size=10, color=MUTED),
+                            gridcolor=LINE, linecolor=LINE),
+            angularaxis=dict(tickfont=dict(size=11, color=NAVY), gridcolor=LINE,
+                             linecolor=LINE),
+        ),
+        showlegend=True,
+        legend=dict(orientation="h", y=-0.05, x=0.5, xanchor="center", font=dict(size=11)),
+    )
+    return _plotly_layout(fig, height=420)
+
+
+def plotly_treemap(series: pd.Series, title: str = "") -> Any:
+    """Sector or region treemap with brand gradient."""
+    import plotly.express as px
+
+    df_in = series.reset_index()
+    df_in.columns = ["label", "value"]
+    fig = px.treemap(
+        df_in, path=["label"], values="value",
+        color="value",
+        color_continuous_scale=[
+            [0.0, "#F4F5F9"], [0.3, "#7C8BC9"], [0.6, NAVY], [1.0, RED],
+        ],
+        custom_data=["value"],
+    )
+    fig.update_traces(
+        textinfo="label+value", textfont=dict(color="white", size=13, family="Inter"),
+        hovertemplate="<b>%{label}</b><br>%{customdata[0]} startups<extra></extra>",
+        marker=dict(line=dict(color="white", width=2)),
+    )
+    fig.update_layout(coloraxis_showscale=False, title=dict(text=title, font=dict(size=13)))
+    return _plotly_layout(fig, height=360)
+
+
+def plotly_donut_methods(result: dict[str, Any]) -> Any:
+    """Donut of FMVA method contribution to the ensemble (weighted USD)."""
+    import plotly.graph_objects as go
+
+    methods = list(result["methods_usd"].keys())
+    weighted = [result["methods_usd"][m] * ENSEMBLE_WEIGHTS[m] for m in methods]
+    palette = [NAVY, RED, GOLD, TEAL, VIOLET]
+    fig = go.Figure(data=[go.Pie(
+        labels=methods, values=weighted, hole=0.62,
+        marker=dict(colors=palette, line=dict(color="white", width=3)),
+        textfont=dict(color="white", size=12, family="Inter"),
+        textinfo="label+percent",
+        hovertemplate="<b>%{label}</b><br>Contribution : $%{value:,.0f}<br>%{percent}<extra></extra>",
+    )])
+    fig.add_annotation(
+        text=f"<b>${result['ensemble_usd']/1e6:.2f}M</b><br><span style='font-size:11px;color:{MUTED}'>Ensemble (USD)</span>",
+        x=0.5, y=0.5, showarrow=False, font=dict(size=18, color=NAVY),
+    )
+    fig.update_layout(showlegend=False)
+    return _plotly_layout(fig, height=360)
+
+
+def plotly_method_bars(result: dict[str, Any]) -> Any:
+    """Horizontal comparison of the 5 FMVA methods + ensemble line."""
+    import plotly.graph_objects as go
+
+    methods = list(result["methods_usd"].keys())
+    values = list(result["methods_usd"].values())
+    palette = [NAVY, RED, GOLD, TEAL, VIOLET]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=values, y=methods, orientation="h",
+        marker=dict(color=palette, line=dict(color="white", width=1.5)),
+        text=[f"${v/1e6:.2f}M" for v in values], textposition="outside",
+        hovertemplate="<b>%{y}</b><br>$%{x:,.0f}<extra></extra>",
+    ))
+    fig.add_vline(
+        x=result["ensemble_usd"], line=dict(color=RED, dash="dash", width=2),
+        annotation_text=f"Ensemble ${result['ensemble_usd']/1e6:.2f}M",
+        annotation_position="top right",
+        annotation_font=dict(color=RED, size=11),
+    )
+    fig.update_xaxes(gridcolor=LINE, showgrid=True, zeroline=False, tickformat="$,.0s")
+    fig.update_yaxes(showgrid=False)
+    return _plotly_layout(fig, height=340)
+
+
+def plotly_yearly_sparkline(years: pd.Series, color: str = NAVY) -> Any:
+    """Tiny line chart for a KPI card (founding-year cadence)."""
+    import plotly.graph_objects as go
+
+    counts = years.value_counts().sort_index().tail(12)
+    fig = go.Figure(go.Scatter(
+        x=list(counts.index), y=list(counts.values),
+        mode="lines", line=dict(color=color, width=2.5, shape="spline"),
+        fill="tozeroy", fillcolor=f"rgba(39,46,95,0.10)",
+        hovertemplate="%{x} : %{y} startups<extra></extra>",
+    ))
+    fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
+    fig.update_layout(showlegend=False, margin=dict(l=0, r=0, t=0, b=0),
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                      height=70)
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Beneficiary spotlight - real funded startups from the CDC dataset
+# ---------------------------------------------------------------------------
+def beneficiary_spotlight(df: pd.DataFrame, k: int = 4) -> list[dict[str, Any]]:
+    """Pick a handful of funded beneficiaries with the richest profile to feature."""
+    if df is None or df.empty:
+        return []
+    funded = df[df.get("funded", 0) == 1].copy() if "funded" in df.columns else df.copy()
+    if funded.empty:
+        funded = df.copy()
+    completeness = pd.Series(0, index=funded.index)
+    for col in ["sector", "Region", "founding_year", "has_web", "has_email", "is_labelled"]:
+        if col in funded.columns:
+            completeness = completeness + funded[col].notna().astype(int)
+    funded = funded.assign(_score=completeness)
+    funded = funded.sort_values(["_score", "founding_year"], ascending=[False, False])
+
+    palette = ["navy", "red", "gold", "teal", "violet", "rose"]
+    out: list[dict[str, Any]] = []
+    seen_sectors: set[str] = set()
+    for _, row in funded.iterrows():
+        sector = str(row.get("sector", "")).strip() or "Tech"
+        if sector in seen_sectors and len(out) < k - 1:
+            continue
+        seen_sectors.add(sector)
+        try:
+            year = int(row.get("founding_year")) if pd.notna(row.get("founding_year")) else None
+        except Exception:
+            year = None
+        out.append({
+            "name": str(row.get("Nom", "Startup CDC")).strip() or "Startup CDC",
+            "sector": sector,
+            "region": str(row.get("Region", "")).strip() or "Tunisie",
+            "year": year,
+            "labelled": bool(row.get("is_labelled", 0)),
+            "color": palette[len(out) % len(palette)],
+        })
+        if len(out) >= k:
+            break
+    return out
+
+
 def _inject_css() -> None:
     import streamlit as st
 
@@ -2772,6 +2956,55 @@ def _inject_css() -> None:
         }}
         .rec-banner h3 {{ margin:0; color: white; }}
         .rec-banner .verdict {{ font-size: 1.55rem; font-weight: 800; }}
+        /* Beneficiary spotlight cards */
+        .spot-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0.7rem; margin: 0.4rem 0 1.1rem 0;
+        }}
+        .spot {{
+            position: relative;
+            border-radius: 14px; overflow: hidden;
+            color: white; min-height: 156px;
+            padding: 0.95rem 1rem;
+            background: linear-gradient(135deg, var(--c1), var(--c2));
+            box-shadow: 0 14px 32px -22px rgba(0,0,0,0.55);
+            display: flex; flex-direction: column; gap: 0.45rem;
+            transition: transform 200ms ease, box-shadow 200ms ease;
+            isolation: isolate;
+        }}
+        .spot::before {{
+            content: ''; position: absolute; inset: 0; z-index: 0;
+            background:
+              radial-gradient(180px 100px at 110% -10%, rgba(255,255,255,0.30), transparent 60%),
+              radial-gradient(280px 160px at -10% 110%, rgba(0,0,0,0.18), transparent 60%);
+        }}
+        .spot > * {{ position: relative; z-index: 1; }}
+        .spot:hover {{ transform: translateY(-3px); box-shadow: 0 22px 44px -22px rgba(0,0,0,0.55); }}
+        .spot .row {{ display:flex; justify-content:space-between; align-items:center; gap: 0.5rem; }}
+        .spot .row .sector {{
+            background: rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.28);
+            padding: 0.18rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700;
+            backdrop-filter: blur(6px);
+        }}
+        .spot .row .label {{
+            font-size: 0.7rem; font-weight: 800; letter-spacing: 0.5px;
+            background: rgba(255,255,255,0.95); color: var(--c2);
+            padding: 0.15rem 0.45rem; border-radius: 999px;
+        }}
+        .spot h4 {{
+            color: white; margin: 0.1rem 0 0 0; font-size: 1.05rem;
+            font-weight: 800; line-height: 1.15;
+        }}
+        .spot .meta {{ font-size: 0.82rem; color: rgba(255,255,255,0.92); }}
+        .spot .stats {{
+            display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: auto;
+        }}
+        .spot .stat {{
+            background: rgba(0,0,0,0.18); border-radius: 8px; padding: 0.35rem 0.5rem;
+        }}
+        .spot .stat .l {{ font-size: 0.66rem; opacity: 0.82; letter-spacing: 0.3px; }}
+        .spot .stat .v {{ font-size: 1rem; font-weight: 800; }}
         /* Portfolio mini cards */
         .pf-grid {{
             display:grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr));
@@ -2962,21 +3195,55 @@ def run_app() -> None:
     df, bundle, segmented_df, segment_summary = _load_all()
 
     with st.sidebar:
+        import base64 as _b64
+        if os.path.exists(LOGO_FILE):
+            with open(LOGO_FILE, "rb") as _fh:
+                _enc = _b64.b64encode(_fh.read()).decode("ascii")
+            st.markdown(
+                f"<div style='text-align:center;padding:0.4rem 0 0.6rem 0'>"
+                f"<img src='data:image/png;base64,{_enc}' style='max-width:140px;border-radius:10px'/>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            "<div style='background:linear-gradient(135deg,#272E5F,#1B2150);"
+            "color:white;padding:0.7rem 0.85rem;border-radius:12px;margin-bottom:0.7rem'>"
+            "<div style='font-size:0.72rem;opacity:.8;letter-spacing:.5px'>PLATEFORME</div>"
+            "<div style='font-weight:800;font-size:1.05rem'>CDC LAUNCHPAD</div>"
+            "<div style='font-size:0.78rem;opacity:.85;margin-top:.15rem'>Decision IA - VAIR / FMVA</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
         session.lang = st.radio(
-            "Language",
+            "Langue / Language",
             ["EN", "FR"],
             index=0 if session.lang == "EN" else 1,
             horizontal=True,
         )
         st.divider()
-        st.caption("Access profile")
         if session.auth:
-            st.success("Authenticated")
+            email = session.get("auth_email", "")
+            st.markdown(
+                f"<div style='background:rgba(34,122,74,.12);border:1px solid rgba(34,122,74,.35);"
+                f"border-radius:10px;padding:0.55rem 0.7rem;color:{INK};font-size:0.85rem'>"
+                f"<b style='color:{GREEN}'>Connecte</b><br>"
+                f"<span style='color:{MUTED};font-size:0.78rem'>{email or 'utilisateur autorise'}</span></div>",
+                unsafe_allow_html=True,
+            )
             if st.button(t("logout", session.lang), use_container_width=True):
                 session.auth = False
+                session["auth_issued"] = None
                 st.rerun()
         else:
-            st.info("Restricted platform")
+            st.info("Acces restreint - code par email")
+        st.divider()
+        st.caption("Support")
+        st.markdown(
+            f"<div style='font-size:0.82rem;color:{MUTED}'>"
+            f"Administrateur : <a href='mailto:{ADMIN_EMAIL}' style='color:{RED}'>{ADMIN_EMAIL}</a><br>"
+            f"<span style='font-size:0.75rem'>Donnees : Startups Tunisia Master v4</span></div>",
+            unsafe_allow_html=True,
+        )
 
     lang = session.lang
     _header(lang)
@@ -3094,15 +3361,44 @@ def run_app() -> None:
             unsafe_allow_html=True,
         )
 
+        spotlight = beneficiary_spotlight(df, k=4)
+        if spotlight:
+            cards_html = []
+            for b in spotlight:
+                c1, c2 = _TONE_GRADIENTS.get(b["color"], (NAVY, "#1B2150"))
+                label_html = "<span class='label'>Startup Act</span>" if b["labelled"] else ""
+                year = b["year"] if b["year"] else "n/d"
+                cards_html.append(
+                    f"<div class='spot' style='--c1:{c1}; --c2:{c2}'>"
+                    f"  <div class='row'>"
+                    f"    <span class='sector'>{b['sector'][:22]}</span>"
+                    f"    {label_html}"
+                    f"  </div>"
+                    f"  <h4>{b['name'][:38]}</h4>"
+                    f"  <div class='meta'>{b['region']}</div>"
+                    f"  <div class='stats'>"
+                    f"    <div class='stat'><div class='l'>Fondee</div><div class='v'>{year}</div></div>"
+                    f"    <div class='stat'><div class='l'>Statut</div><div class='v'>Financee</div></div>"
+                    f"  </div>"
+                    f"</div>"
+                )
+            st.markdown(
+                "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#7C3AED,#4C1D95)'>Beneficiaires</span>"
+                "<h3>Coups de projecteur sur les startups financees</h3></div>"
+                f"<div class='spot-grid'>{''.join(cards_html)}</div>",
+                unsafe_allow_html=True,
+            )
+
         st.markdown(
             "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#C9A227,#8C7415)'>Carte sectorielle</span>"
-            "<h3>Top secteurs dans le portefeuille CDC</h3></div>",
+            "<h3>Cartographie des secteurs et dynamique annuelle</h3></div>",
             unsafe_allow_html=True,
         )
-        c_left, c_right = st.columns([1.25, 1])
+        c_left, c_right = st.columns([1.4, 1])
         with c_left:
-            top = df["sector"].value_counts().head(12).sort_values()
-            st.bar_chart(top, color=RED, height=320)
+            top = df["sector"].value_counts().head(14)
+            st.plotly_chart(plotly_treemap(top, "Top secteurs (taille = nombre de startups)"),
+                            use_container_width=True, config={"displayModeBar": False})
         with c_right:
             st.markdown("**Dynamique annuelle**")
             years = pd.to_numeric(df["founding_year"], errors="coerce").dropna().astype(int)
@@ -3155,12 +3451,16 @@ def run_app() -> None:
 
         c_left, c_right = st.columns([1.4, 1])
         with c_left:
-            st.markdown("**Repartition par secteur (filtree)**")
+            st.markdown("**Repartition sectorielle (filtree)**")
             if "Secteur" in filtered.columns:
-                top = filtered["Secteur"].value_counts().head(15).sort_values()
+                top = filtered["Secteur"].value_counts().head(16)
             else:
-                top = filtered["sector"].value_counts().head(15).sort_values()
-            st.bar_chart(top, color=NAVY, height=340)
+                top = filtered["sector"].value_counts().head(16)
+            if not top.empty:
+                st.plotly_chart(plotly_treemap(top, ""),
+                                use_container_width=True, config={"displayModeBar": False})
+            else:
+                st.info("Aucune startup avec ces filtres.")
         with c_right:
             st.markdown("**Segments comportementaux**")
             st.dataframe(
@@ -3412,11 +3712,9 @@ def run_app() -> None:
                    f"{last_fmva['iqr_ratio']:.0%}" if last_fmva else "n/d",
                    "Revue" if last_fmva and last_fmva["review_flag"] else None)
 
-        radar_df = pd.DataFrame({
-            "Note": [ax["note"] for ax in scorecard["axes"]],
-        }, index=[ax["axis"][:30] for ax in scorecard["axes"]])
-        st.markdown("**Profil par axe**")
-        st.bar_chart(radar_df, color=NAVY, height=260)
+        st.markdown("**Profil par axe (radar 0-5)**")
+        st.plotly_chart(plotly_radar(scorecard),
+                        use_container_width=True, config={"displayModeBar": False})
 
         st.markdown("**Justification axe par axe**")
         for ax in scorecard["axes"]:
@@ -3598,11 +3896,14 @@ def run_app() -> None:
         if not result["berkus_cap_ok"]:
             st.warning("Total Berkus depasse le plafond USD 2.5M - reduire un ou plusieurs facteurs.")
 
-        st.markdown("**Comparatif des methodes (USD)**")
-        chart_df = pd.DataFrame({
-            "Valorisation (USD)": list(result["methods_usd"].values()),
-        }, index=list(result["methods_usd"].keys()))
-        st.bar_chart(chart_df, color=RED, height=280)
+        st.markdown("**Composition de l'ensemble et comparatif des methodes**")
+        v1, v2 = st.columns([1, 1.4])
+        with v1:
+            st.plotly_chart(plotly_donut_methods(result),
+                            use_container_width=True, config={"displayModeBar": False})
+        with v2:
+            st.plotly_chart(plotly_method_bars(result),
+                            use_container_width=True, config={"displayModeBar": False})
 
         rows = pd.DataFrame({
             "Methode": list(result["methods_usd"].keys()),
@@ -3640,25 +3941,84 @@ def run_app() -> None:
         session["last_fmva_overall"] = overall
 
     with tabs[5]:
-        st.markdown("### Model performance")
+        st.markdown(
+            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#0FB5A6,#067067)'>Learning loop</span>"
+            "<h3>Performances du modele et boucle d'apprentissage</h3></div>",
+            unsafe_allow_html=True,
+        )
         m = bundle.metrics
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Engine", m["engine"])
-        c2.metric("ROC-AUC", "-" if m["roc_auc"] is None else m["roc_auc"])
-        c3.metric("F1", "-" if m["f1"] is None else m["f1"])
-        c4.metric("Accuracy", "-" if m["accuracy"] is None else m["accuracy"])
+        store_rows = 0
+        try:
+            if os.path.exists(STORE_FILE):
+                store_rows = len(pd.read_csv(STORE_FILE))
+        except Exception:
+            store_rows = 0
+        metric_cards = [
+            ("Moteur", m["engine"], "engine type", "navy"),
+            ("ROC-AUC", "-" if m["roc_auc"] is None else f"{m['roc_auc']:.3f}",
+             "discrimination", "red"),
+            ("F1", "-" if m["f1"] is None else f"{m['f1']:.3f}",
+             "precision/rappel", "gold"),
+            ("Accuracy", "-" if m["accuracy"] is None else f"{m['accuracy']:.3f}",
+             "taux global", "teal"),
+            ("Echantillon", f"{m['n_rows']:,}", f"{m['n_funded']:,} finances", "violet"),
+            ("Boucle live", f"{store_rows:,}", "lignes apprises", "rose"),
+        ]
+        cards_html = []
+        for lbl, val, sub, tone in metric_cards:
+            c1, c2 = _TONE_GRADIENTS[tone]
+            cards_html.append(
+                f"<div class='kpi' style='--c1:{c1}; --c2:{c2}'>"
+                f"<span class='bar'></span>"
+                f"<div class='icon'>M</div>"
+                f"<div class='kpi-label'>{lbl}</div>"
+                f"<div class='kpi-value'>{val}</div>"
+                f"<div class='kpi-sub'>{sub}</div></div>"
+            )
+        st.markdown(f"<div class='kpi-strip'>{''.join(cards_html)}</div>",
+                    unsafe_allow_html=True)
 
-        st.markdown("### Add labelled outcome")
+        ml_left, ml_right = st.columns([1.1, 1])
+        with ml_left:
+            st.markdown("**Drivers du modele - poids relatifs**")
+            try:
+                feats = getattr(bundle, "feature_importances", None)
+                if feats:
+                    fi_df = pd.DataFrame({"weight": list(feats.values())},
+                                         index=list(feats.keys())).sort_values("weight")
+                    st.bar_chart(fi_df, color=NAVY, height=300)
+                else:
+                    st.caption("Le moteur regle ne fournit pas de poids explicites.")
+            except Exception:
+                st.caption("Importances indisponibles pour ce moteur.")
+        with ml_right:
+            st.markdown("**Comment fonctionne la boucle**")
+            st.markdown(
+                "1. **Evaluer** une startup dans l'onglet Assessment.\n"
+                "2. **Labeller** le resultat reel (finance / non finance) ci-dessous.\n"
+                "3. La ligne est ecrite dans le store local et le modele est "
+                "**re-entraine immediatement**.\n"
+                "4. Toutes les recommandations futures (score, grille, FMVA) "
+                "**re-utilisent** le modele rafraichi."
+            )
+            st.caption(f"Stockage local : `{os.path.basename(STORE_FILE)}` "
+                       f"({store_rows} lignes capitalisees a ce jour).")
+
+        st.markdown(
+            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#D10A11,#8C0A0F)'>Capitaliser</span>"
+            "<h3>Ajouter un cas labellise et re-entrainer</h3></div>",
+            unsafe_allow_html=True,
+        )
         with st.form("learning_form"):
             l1, l2, l3 = st.columns(3)
-            new_name = l1.text_input("Name", "NewCo Tunisia")
-            new_sector = l2.selectbox("Sector", sorted(df["sector"].dropna().astype(str).unique()), key="learn_sector")
-            new_year = l3.number_input("Founding year", 2000, ANALYSIS_YEAR, 2022, key="learn_year")
+            new_name = l1.text_input("Nom de la startup", "NewCo Tunisia")
+            new_sector = l2.selectbox("Secteur", sorted(df["sector"].dropna().astype(str).unique()), key="learn_sector")
+            new_year = l3.number_input("Annee de creation", 2000, ANALYSIS_YEAR, 2022, key="learn_year")
             l4, l5, l6 = st.columns(3)
-            new_founders = l4.number_input("Founders", 1, 12, 3, key="learn_founders")
-            outcome = l5.selectbox("Outcome", ["funded", "not funded"])
-            new_labelled = l6.checkbox("Startup Act label", True, key="learn_label")
-            append = st.form_submit_button("Append and retrain", use_container_width=True)
+            new_founders = l4.number_input("Fondateurs", 1, 12, 3, key="learn_founders")
+            outcome = l5.selectbox("Resultat reel", ["finance", "non finance"])
+            new_labelled = l6.checkbox("Label Startup Act", True, key="learn_label")
+            append = st.form_submit_button("Ajouter et re-entrainer", use_container_width=True)
         if append:
             total = append_record(
                 {
@@ -3667,11 +4027,11 @@ def run_app() -> None:
                     "year": new_year,
                     "founders": new_founders,
                     "labelled": new_labelled,
-                    "funded": 1 if outcome == "funded" else 0,
+                    "funded": 1 if outcome == "finance" else 0,
                 }
             )
             st.cache_resource.clear()
-            st.success(f"Stored {total} learning rows. Reloading model...")
+            st.success(f"{total} lignes capitalisees. Modele en cours de re-entrainement...")
             st.rerun()
 
     with tabs[6]:
