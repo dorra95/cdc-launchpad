@@ -3116,13 +3116,6 @@ def _header(lang: str) -> None:
             encoded = base64.b64encode(fh.read()).decode("ascii")
         media_html = f"<img src='data:image/png;base64,{encoded}' alt='CDC'>"
 
-    tagline = (
-        "Plateforme decisionnelle IA pour l'evaluation et la valorisation des "
-        "startups tunisiennes - scoring comite, FMVA, learning loop temps reel."
-        if lang == "FR"
-        else "AI decisioning platform for Tunisian startup assessment and "
-             "valuation - committee scoring, FMVA, live learning loop."
-    )
     badges = (
         ("Caisse des Depots", GOLD),
         ("VAIR / Greentech", TEAL),
@@ -3140,7 +3133,6 @@ def _header(lang: str) -> None:
                 <div class="cdc-hero-logo">{media_html}</div>
                 <div>
                     <h1>CDC LAUNCHPAD</h1>
-                    <p class="tagline">{tagline}</p>
                     <div class="badges">{badge_html}</div>
                 </div>
             </div>
@@ -3240,8 +3232,7 @@ def run_app() -> None:
         st.caption("Support")
         st.markdown(
             f"<div style='font-size:0.82rem;color:{MUTED}'>"
-            f"Administrateur : <a href='mailto:{ADMIN_EMAIL}' style='color:{RED}'>{ADMIN_EMAIL}</a><br>"
-            f"<span style='font-size:0.75rem'>Donnees : Startups Tunisia Master v4</span></div>",
+            f"Administrateur : <a href='mailto:{ADMIN_EMAIL}' style='color:{RED}'>{ADMIN_EMAIL}</a></div>",
             unsafe_allow_html=True,
         )
 
@@ -3275,11 +3266,24 @@ def run_app() -> None:
                     issued = issue_access_code(email_clean)
                     session["auth_issued"] = issued
                     session["auth_email"] = email_clean
-                    if issued["ok"]:
+                    if issued["ok"] and issued["channel"] == "email":
                         st.success(
-                            ("Code envoye. Verifiez votre boite de reception."
-                             if lang == "FR"
-                             else "Code sent. Check your inbox.")
+                            "Code envoye par email. Verifiez votre boite de reception (et vos spams)."
+                            if lang == "FR"
+                            else "Code sent by email. Check your inbox (and spam folder)."
+                        )
+                    elif issued["ok"] and issued["channel"] == "admin_log":
+                        st.warning(
+                            ("SMTP non configure (mode developpement). "
+                             f"L'administrateur peut recuperer le code dans le fichier "
+                             f"`{os.path.basename(ACCESS_LOG)}` situe a cote de l'application, "
+                             f"ou configurer les variables CDC_SMTP_HOST/USER/PASS/FROM pour "
+                             "activer l'envoi par email.")
+                            if lang == "FR"
+                            else ("SMTP not configured (dev mode). "
+                                  f"Admin can retrieve the code from `{os.path.basename(ACCESS_LOG)}` "
+                                  "next to the app, or set CDC_SMTP_HOST/USER/PASS/FROM "
+                                  "env vars to enable email delivery.")
                         )
                     else:
                         st.error("Envoi impossible. Contactez l'administrateur."
