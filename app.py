@@ -4769,40 +4769,56 @@ def _inject_css() -> None:
             2%, 16% {{ opacity: 1; transform: translateY(0); }}
             20%, 100% {{ opacity: 0; transform: translateY(-6px); }}
         }}
-        .cdc-quote {{ gap: 1.1rem !important; align-items: flex-start !important; }}
+        .cdc-quote {{ gap: 1.25rem !important; align-items: flex-start !important; }}
         .cdc-quote .avatar {{
             width: 96px; height: 96px; border-radius: 50%;
             overflow: hidden; flex-shrink: 0;
             box-shadow:
-                0 18px 36px -14px rgba(39,46,95,0.60),
+                0 22px 44px -14px rgba(39,46,95,0.60),
                 0 0 0 4px rgba(255,255,255,1),
                 0 0 0 5px rgba(209,10,17,0.22);
-            position: relative;
+            position: relative; background: #FAFBFE;
         }}
         .cdc-quote .avatar::after {{
-            content:''; position:absolute; inset:0;
-            background: linear-gradient(160deg, rgba(255,255,255,0.18) 0%, transparent 40%, transparent 60%, rgba(0,0,0,0.10) 100%);
-            pointer-events: none;
+            content:''; position:absolute; inset:0; pointer-events: none;
+            background: linear-gradient(160deg, rgba(255,255,255,0.22) 0%, transparent 38%, transparent 62%, rgba(0,0,0,0.12) 100%);
         }}
-        .cdc-quote .avatar svg {{ width: 100%; height: 100%; }}
+        .cdc-quote .avatar svg, .cdc-quote .avatar img {{
+            width: 100%; height: 100%; object-fit: cover; display: block;
+        }}
+        .cdc-quote .quote-photo {{ position: relative; z-index: 1; }}
+        .cdc-quote .quote-monogram {{ display: none; }}
+        /* When the <img> fails (404 / broken URL), JS shows the monogram fallback */
+        .cdc-quote .avatar img[style*="display: none"] + .quote-monogram {{ display: block; }}
+        .cdc-quote .quote-body {{ flex: 1; padding-top: 0.15rem; }}
         .cdc-quote .text {{
-            color: {INK}; font-size: 1.15rem; line-height: 1.45; font-style: italic;
-            font-weight: 500; letter-spacing: -0.005em;
+            color: {INK}; font-size: 1.18rem; line-height: 1.45;
+            font-style: italic; font-weight: 500; letter-spacing: -0.005em;
+            font-family: Georgia, "Playfair Display", "Times New Roman", serif;
         }}
         .cdc-quote .who {{
-            color: {RED}; font-size: 0.78rem; margin-top: 0.35rem;
-            font-style: normal; font-weight: 800; letter-spacing: 0.4px;
+            color: {RED}; font-size: 0.78rem; margin-top: 0.55rem;
+            font-style: normal; font-weight: 800; letter-spacing: 0.45px;
             text-transform: uppercase;
-            display: inline-flex; align-items: center; gap: 0.35rem;
+            display: inline-flex; align-items: center; gap: 0.45rem;
+            flex-wrap: wrap;
         }}
         .cdc-quote .who::before {{
-            content:''; width: 18px; height: 2px; border-radius: 2px;
+            content:''; width: 22px; height: 2px; border-radius: 2px;
             background: linear-gradient(90deg, {NAVY}, {RED});
             display: inline-block;
         }}
+        .cdc-quote .who .role {{
+            color: {MUTED}; font-weight: 700;
+            letter-spacing: 0.3px; text-transform: none;
+            font-size: 0.74rem;
+        }}
+        .cdc-quote .who .role::before {{
+            content: ' · '; color: #D9DCE6; margin: 0 0.25rem;
+        }}
         @media (max-width: 720px) {{
-            .cdc-quote .avatar {{ width: 72px; height: 72px; }}
-            .cdc-quote .text {{ font-size: 1rem; }}
+            .cdc-quote .avatar {{ width: 78px; height: 78px; }}
+            .cdc-quote .text {{ font-size: 1.02rem; }}
         }}
         .cdc-quote-wrap {{
             margin-top: 0.9rem; position: relative; min-height: 110px;
@@ -5454,30 +5470,125 @@ def _alert(level: str, title: str, details: list[str]) -> None:
     )
 
 
-HERO_QUOTES_EN: list[tuple[str, str, str]] = [
-    ("Speed is the moat. Compounding execution beats clever strategy on a slide deck.",
-     "Founder mindset", "FM"),
-    ("Capital is patient when traction is loud. Make the numbers talk before you do.",
-     "Investor wisdom", "IW"),
-    ("The best Tunisian startups don't ask for permission. They ship, measure, iterate.",
-     "Builder's law", "BL"),
-    ("Distribution is the new innovation. Pick a wedge and own it before anyone notices.",
-     "Operator's playbook", "OP"),
-    ("Funding is a milestone, not a finish line. Welcome to the control room.",
-     "CDC LaunchPAD", "CL"),
+HERO_QUOTES_EN: list[dict[str, str]] = [
+    {
+        "text": "Speed is the moat. Compounding execution beats clever strategy on a slide deck.",
+        "who": "The founder's mindset",
+        "role": "CDC LaunchPAD voice",
+        "initials": "FM",
+        "photo_url": "",
+    },
+    {
+        "text": "Capital is patient when traction is loud. Make the numbers talk before you do.",
+        "who": "The investor's lens",
+        "role": "CDC LaunchPAD voice",
+        "initials": "IL",
+        "photo_url": "",
+    },
+    {
+        "text": "Tunisian founders don't ask for permission. They ship, measure, iterate.",
+        "who": "The builder's law",
+        "role": "CDC LaunchPAD voice",
+        "initials": "BL",
+        "photo_url": "",
+    },
+    {
+        "text": "Distribution is the new innovation. Pick a wedge and own it before anyone notices.",
+        "who": "The operator's playbook",
+        "role": "CDC LaunchPAD voice",
+        "initials": "OP",
+        "photo_url": "",
+    },
+    {
+        "text": "Funding is a milestone, not a finish line. Welcome to the control room.",
+        "who": "CDC LaunchPAD",
+        "role": "Platform manifesto",
+        "initials": "CL",
+        "photo_url": "",
+    },
 ]
-HERO_QUOTES_FR: list[tuple[str, str, str]] = [
-    ("La vitesse est votre rempart. L'execution composee bat la strategie sur slide.",
-     "Mental de fondateur", "MF"),
-    ("Le capital est patient quand la traction est bruyante. Faites parler les chiffres avant vous.",
-     "Sagesse d'investisseur", "SI"),
-    ("Les meilleures startups tunisiennes ne demandent pas la permission. Elles livrent, mesurent, iterent.",
-     "Loi du builder", "LB"),
-    ("La distribution est la nouvelle innovation. Choisissez un creneau et dominez-le.",
-     "Manuel de l'operateur", "MO"),
-    ("Le financement est une etape, pas une ligne d'arrivee. Bienvenue dans la salle de controle.",
-     "CDC LaunchPAD", "CL"),
+HERO_QUOTES_FR: list[dict[str, str]] = [
+    {
+        "text": "La vitesse est votre rempart. L'execution composee bat la strategie sur slide.",
+        "who": "Mental de fondateur",
+        "role": "Voix CDC LaunchPAD",
+        "initials": "MF",
+        "photo_url": "",
+    },
+    {
+        "text": "Le capital est patient quand la traction est bruyante. Faites parler les chiffres.",
+        "who": "L'oeil de l'investisseur",
+        "role": "Voix CDC LaunchPAD",
+        "initials": "OI",
+        "photo_url": "",
+    },
+    {
+        "text": "Les fondateurs tunisiens ne demandent pas la permission. Ils livrent, mesurent, iterent.",
+        "who": "Loi du builder",
+        "role": "Voix CDC LaunchPAD",
+        "initials": "LB",
+        "photo_url": "",
+    },
+    {
+        "text": "La distribution est la nouvelle innovation. Choisissez un creneau et dominez-le.",
+        "who": "Manuel de l'operateur",
+        "role": "Voix CDC LaunchPAD",
+        "initials": "MO",
+        "photo_url": "",
+    },
+    {
+        "text": "Le financement est une etape, pas une ligne d'arrivee. Bienvenue dans la salle de controle.",
+        "who": "CDC LaunchPAD",
+        "role": "Manifeste plateforme",
+        "initials": "CL",
+        "photo_url": "",
+    },
 ]
+
+
+def _editorial_monogram(initials: str, c1: str, c2: str, size: int = 96) -> str:
+    """Premium magazine-style monogram avatar - large initials, gradient, ornamental ring."""
+    import hashlib
+
+    digest = hashlib.md5(initials.encode("utf-8")).hexdigest()
+    seed = int(digest[:8], 16)
+    angle = (seed % 60) - 30
+    cx = size // 2
+    cy = size // 2
+    inner_r = int(size * 0.42)
+    outer_r = int(size * 0.48)
+    font_px = int(size * 0.46)
+
+    sx = (seed >> 8) % 100 / 100.0
+    sy = ((seed >> 16) % 100) / 100.0
+
+    return (
+        f"<svg viewBox='0 0 {size} {size}' xmlns='http://www.w3.org/2000/svg' "
+        f"style='width:100%;height:100%;display:block;border-radius:50%'>"
+        f"<defs>"
+        f"  <linearGradient id='mg{seed}' x1='0%' y1='0%' x2='100%' y2='100%' "
+        f"  gradientTransform='rotate({angle} {sx} {sy})'>"
+        f"    <stop offset='0%' stop-color='{c1}'/>"
+        f"    <stop offset='100%' stop-color='{c2}'/>"
+        f"  </linearGradient>"
+        f"  <linearGradient id='mh{seed}' x1='0%' y1='0%' x2='0%' y2='100%'>"
+        f"    <stop offset='0%' stop-color='rgba(255,255,255,0.22)'/>"
+        f"    <stop offset='55%' stop-color='rgba(255,255,255,0)'/>"
+        f"    <stop offset='100%' stop-color='rgba(0,0,0,0.18)'/>"
+        f"  </linearGradient>"
+        f"</defs>"
+        f"<circle cx='{cx}' cy='{cy}' r='{outer_r}' fill='url(#mg{seed})'/>"
+        f"<circle cx='{cx}' cy='{cy}' r='{outer_r}' fill='url(#mh{seed})'/>"
+        f"<circle cx='{cx}' cy='{cy}' r='{inner_r}' fill='none' "
+        f"   stroke='rgba(255,255,255,0.45)' stroke-width='1.2'/>"
+        f"<circle cx='{cx}' cy='{cy}' r='{outer_r - 2}' fill='none' "
+        f"   stroke='rgba(255,255,255,0.25)' stroke-width='0.8'/>"
+        f"<text x='{cx}' y='{cy}' text-anchor='middle' dominant-baseline='central' "
+        f"   font-family='Georgia, \"Playfair Display\", serif' font-weight='700' "
+        f"   font-size='{font_px}' fill='white' letter-spacing='-0.02em' "
+        f"   style='text-shadow:0 2px 6px rgba(0,0,0,0.25)'>{initials[:2].upper()}</text>"
+        f"</svg>"
+    )
 
 
 def _header(lang: str, status_pill: str = "") -> None:
@@ -5505,13 +5616,31 @@ def _header(lang: str, status_pill: str = "") -> None:
     quotes = HERO_QUOTES_FR if lang == "FR" else HERO_QUOTES_EN
     avatar_palette = [(NAVY, "#1B2150"), (RED, "#8C0A0F"),
                       (NAVY, RED), (RED, NAVY), (NAVY, "#1B2150")]
+
+    def _avatar(q: dict[str, str], c1: str, c2: str) -> str:
+        photo = q.get("photo_url") or ""
+        if photo:
+            return (
+                f"<img class='quote-photo' src='{photo}' alt='' loading='lazy' "
+                f"onerror=\"this.style.display='none'; "
+                f"this.nextElementSibling.style.display='block';\"/>"
+                f"<div class='quote-monogram'>"
+                f"{_editorial_monogram(q.get('initials', '?'), c1, c2, 96)}"
+                f"</div>"
+            )
+        return _editorial_monogram(q.get("initials", "?"), c1, c2, 96)
+
     quote_html = "".join(
         f"<div class='cdc-quote'>"
-        f"  <div class='avatar'>{_svg_portrait(text + who, c1, c2, 84)}</div>"
-        f"  <div><div class='text'>\"{text}\"</div>"
-        f"  <div class='who'>{who}</div></div>"
+        f"  <div class='avatar'>{_avatar(q, c1, c2)}</div>"
+        f"  <div class='quote-body'>"
+        f"    <div class='text'>&ldquo;{q['text']}&rdquo;</div>"
+        f"    <div class='who'>{q['who']}"
+        f"      <span class='role'>{q.get('role', '')}</span>"
+        f"    </div>"
+        f"  </div>"
         f"</div>"
-        for (text, who, _initials), (c1, c2) in zip(quotes, avatar_palette)
+        for q, (c1, c2) in zip(quotes, avatar_palette)
     )
     tagline = (
         "From funding to breakout - submit deliverables, prove traction, "
