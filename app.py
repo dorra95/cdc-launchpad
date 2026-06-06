@@ -932,7 +932,7 @@ def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
         m["To"] = to_addr
         return m
 
-    smtp_error: str = ""
+    smtp_errors: list[str] = []
     if host and user and pwd:
         ports_to_try: list[tuple[int, str]] = []
         if port_setting:
@@ -958,9 +958,11 @@ def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
                         smtp.sendmail(sender, [to_addr], _build_msg().as_string())
                 return True, "email"
             except Exception as exc:
-                smtp_error = f"{type(exc).__name__}: {exc}"
-                print(f"[CDC LAUNCHPAD] SMTP {host}:{port} failed - {smtp_error}", flush=True)
+                detail = f"{host}:{port}/{mode} -> {type(exc).__name__}: {exc}"
+                smtp_errors.append(detail)
+                print(f"[CDC LAUNCHPAD] SMTP {detail}", flush=True)
                 continue
+    smtp_error = " | ".join(smtp_errors)
 
     # Fallback path. Always log + write to file, so the admin can recover the code.
     banner = (
@@ -2524,6 +2526,110 @@ def assessment_excel(payload: dict[str, Any]) -> io.BytesIO:
     return buffer
 
 
+def _pdf_cover_page(
+    payload: dict[str, Any],
+    kind: str,
+    badge_text: str = "",
+    badge_color: str = NAVY,
+    subtitle: str = "",
+    lang: str = "FR",
+) -> list[Any]:
+    """Branded PDF cover page - large logo, startup name, recommendation badge."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Image, KeepInFrame, PageBreak, Paragraph, Spacer, Table, TableStyle,
+    )
+
+    is_fr = (lang == "FR")
+    styles = getSampleStyleSheet()
+    big_title = ParagraphStyle(
+        "CoverTitle", parent=styles["Title"], textColor=colors.HexColor(NAVY),
+        fontSize=34, leading=38, alignment=0, spaceAfter=4,
+    )
+    cover_kind = ParagraphStyle(
+        "CoverKind", parent=styles["Normal"], textColor=colors.HexColor(RED),
+        fontSize=10, leading=12, alignment=0, spaceAfter=6,
+    )
+    cover_meta = ParagraphStyle(
+        "CoverMeta", parent=styles["Normal"], textColor=colors.HexColor(MUTED),
+        fontSize=10, leading=14, alignment=0,
+    )
+    badge_style = ParagraphStyle(
+        "BadgeStyle", parent=styles["Normal"], textColor=colors.white,
+        fontSize=13, leading=15, alignment=1,
+    )
+    elements: list[Any] = [Spacer(1, 16 * mm)]
+    if os.path.exists(LOGO_FILE):
+        try:
+            elements.append(Image(LOGO_FILE, width=58 * mm, height=23 * mm))
+        except Exception:
+            pass
+    elements.append(Spacer(1, 30 * mm))
+
+    kind_label = {
+        "committee": ("Rapport de comite VAIR" if is_fr else "VAIR Committee Report"),
+        "valuation": ("Rapport de valorisation" if is_fr else "Valuation Report"),
+        "financial": ("Memo d'investissement financier" if is_fr else "Financial Investment Memo"),
+    }.get(kind, kind)
+    elements.append(Paragraph(kind_label.upper(), cover_kind))
+
+    name = payload.get("name", "") or ("Startup" if not is_fr else "Startup")
+    elements.append(Paragraph(name, big_title))
+
+    meta_bits = [b for b in [
+        payload.get("sector", ""),
+        payload.get("region", ""),
+        f"{dt.date.today():%d %B %Y}" if is_fr else f"{dt.date.today():%d %B %Y}",
+    ] if b]
+    if subtitle:
+        meta_bits.append(subtitle)
+    elements.append(Paragraph(" | ".join(meta_bits), cover_meta))
+    elements.append(Spacer(1, 24 * mm))
+
+    if badge_text:
+        rec_label = "Recommandation" if is_fr else "Recommendation"
+        badge_table = Table(
+            [
+                [Paragraph(f"<font size=8 color='#FFFFFF'>{rec_label.upper()}</font>", badge_style)],
+                [Paragraph(f"<b>{badge_text}</b>", badge_style)],
+            ],
+            colWidths=[110 * mm], rowHeights=[10 * mm, 16 * mm],
+        )
+        badge_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(badge_color)),
+            ("BOX", (0, 0), (-1, -1), 0, colors.HexColor(badge_color)),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 14),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+        ]))
+        elements.append(badge_table)
+        elements.append(Spacer(1, 14 * mm))
+
+    foot_left = "Plateforme CDC LAUNCHPAD" if is_fr else "CDC LAUNCHPAD Platform"
+    foot_right = (
+        f"Confidentiel - usage interne CDC Tunisie"
+        if is_fr
+        else "Confidential - CDC Tunisia internal use"
+    )
+    footer = Table([[
+        Paragraph(f"<font size=8 color='#272E5F'><b>{foot_left}</b></font>", cover_meta),
+        Paragraph(f"<font size=8 color='#6B7280'>{foot_right}</font>", cover_meta),
+    ]], colWidths=[80 * mm, 80 * mm])
+    footer.setStyle(TableStyle([
+        ("ALIGN", (0, 0), (0, 0), "LEFT"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("LINEABOVE", (0, 0), (-1, 0), 1, colors.HexColor(RED)),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(footer)
+    elements.append(PageBreak())
+    return elements
+
+
 def committee_pdf(
     payload: dict[str, Any],
     scorecard: dict[str, Any],
@@ -2576,12 +2682,13 @@ def committee_pdf(
     small = ParagraphStyle("Small", parent=body, fontSize=8, textColor=colors.HexColor(MUTED))
     elements: list[Any] = []
 
-    if os.path.exists(LOGO_FILE):
-        try:
-            elements.append(Image(LOGO_FILE, width=42 * mm, height=17 * mm))
-            elements.append(Spacer(1, 6))
-        except Exception:
-            pass
+    badge_text = (overall or {}).get("action", "") if overall else ""
+    badge_color = (overall or {}).get("color", NAVY) if overall else NAVY
+    elements.extend(_pdf_cover_page(
+        payload, "committee", badge_text=badge_text, badge_color=badge_color,
+        subtitle=f"{('Note globale' if is_fr else 'Global score')} {scorecard['global_note']}/5",
+        lang=lang,
+    ))
 
     elements.append(Paragraph(L["title"], title))
     elements.append(Paragraph(
@@ -2720,12 +2827,17 @@ def fmva_pdf(
     small = ParagraphStyle("Sm", parent=body, fontSize=8, textColor=colors.HexColor(MUTED))
     elements: list[Any] = []
 
-    if os.path.exists(LOGO_FILE):
-        try:
-            elements.append(Image(LOGO_FILE, width=42 * mm, height=17 * mm))
-            elements.append(Spacer(1, 6))
-        except Exception:
-            pass
+    badge_text = (overall or {}).get("action", "") if overall else ""
+    badge_color = (overall or {}).get("color", NAVY) if overall else NAVY
+    pre_rev = result.get("is_pre_revenue", False)
+    sub_lbl = (
+        ("Mode pre-revenu" if is_fr else "Pre-revenue mode")
+        if pre_rev else f"${result['ensemble_usd']/1e6:.2f} M USD"
+    )
+    elements.extend(_pdf_cover_page(
+        payload, "valuation", badge_text=badge_text, badge_color=badge_color,
+        subtitle=sub_lbl, lang=lang,
+    ))
     elements.append(Paragraph(L["title"], title))
     elements.append(Paragraph(
         f"<b>{payload.get('name', '')}</b> | {payload.get('sector', '')} | "
@@ -3319,12 +3431,12 @@ def financial_pdf(payload: dict[str, Any], data: dict[str, float],
     small = ParagraphStyle("FinSm", parent=body, fontSize=8, textColor=colors.HexColor(MUTED))
     elements: list[Any] = []
 
-    if os.path.exists(LOGO_FILE):
-        try:
-            elements.append(Image(LOGO_FILE, width=42 * mm, height=17 * mm))
-            elements.append(Spacer(1, 6))
-        except Exception:
-            pass
+    action_color = memo.get("color", NAVY)
+    sub_lbl = f"{('Sante' if is_fr else 'Health')} {memo['health_score']*100:.0f}/100"
+    elements.extend(_pdf_cover_page(
+        payload, "financial", badge_text=memo["action"], badge_color=action_color,
+        subtitle=sub_lbl, lang=lang,
+    ))
     elements.append(Paragraph(L["title"], title))
     elements.append(Paragraph(
         f"<b>{payload.get('name', '')}</b> | {payload.get('sector', '')} | "
@@ -4657,17 +4769,40 @@ def _inject_css() -> None:
             2%, 16% {{ opacity: 1; transform: translateY(0); }}
             20%, 100% {{ opacity: 0; transform: translateY(-6px); }}
         }}
+        .cdc-quote {{ gap: 1.1rem !important; align-items: flex-start !important; }}
         .cdc-quote .avatar {{
-            width: 64px; height: 64px; border-radius: 50%;
+            width: 96px; height: 96px; border-radius: 50%;
             overflow: hidden; flex-shrink: 0;
-            box-shadow: 0 10px 26px -12px rgba(39,46,95,0.55),
-                        0 0 0 3px rgba(255,255,255,0.95);
+            box-shadow:
+                0 18px 36px -14px rgba(39,46,95,0.60),
+                0 0 0 4px rgba(255,255,255,1),
+                0 0 0 5px rgba(209,10,17,0.22);
+            position: relative;
+        }}
+        .cdc-quote .avatar::after {{
+            content:''; position:absolute; inset:0;
+            background: linear-gradient(160deg, rgba(255,255,255,0.18) 0%, transparent 40%, transparent 60%, rgba(0,0,0,0.10) 100%);
+            pointer-events: none;
         }}
         .cdc-quote .avatar svg {{ width: 100%; height: 100%; }}
-        .cdc-quote .text {{ color: {INK}; font-size: 1.05rem; line-height: 1.4; font-style: italic; }}
+        .cdc-quote .text {{
+            color: {INK}; font-size: 1.15rem; line-height: 1.45; font-style: italic;
+            font-weight: 500; letter-spacing: -0.005em;
+        }}
         .cdc-quote .who {{
-            color: {RED}; font-size: 0.78rem; margin-top: 0.2rem;
-            font-style: normal; font-weight: 800; letter-spacing: 0.3px;
+            color: {RED}; font-size: 0.78rem; margin-top: 0.35rem;
+            font-style: normal; font-weight: 800; letter-spacing: 0.4px;
+            text-transform: uppercase;
+            display: inline-flex; align-items: center; gap: 0.35rem;
+        }}
+        .cdc-quote .who::before {{
+            content:''; width: 18px; height: 2px; border-radius: 2px;
+            background: linear-gradient(90deg, {NAVY}, {RED});
+            display: inline-block;
+        }}
+        @media (max-width: 720px) {{
+            .cdc-quote .avatar {{ width: 72px; height: 72px; }}
+            .cdc-quote .text {{ font-size: 1rem; }}
         }}
         .cdc-quote-wrap {{
             margin-top: 0.9rem; position: relative; min-height: 110px;
@@ -4956,6 +5091,107 @@ def _inject_css() -> None:
         .news-grid > *:nth-child(5) {{ animation-delay: 380ms; }}
         .alaune-grid > *:nth-child(6), .prog-grid > *:nth-child(6),
         .news-grid > *:nth-child(6) {{ animation-delay: 460ms; }}
+        /* Sector leaderboard */
+        .leaderboard {{
+            background: #FFFFFF; border: 1px solid #EEF0F6; border-radius: 16px;
+            padding: 0.9rem 1rem; box-shadow: 0 18px 40px -28px rgba(39,46,95,0.25);
+        }}
+        .lb-head {{
+            font-size: 0.78rem; font-weight: 800; color: {RED};
+            letter-spacing: 0.4px; text-transform: uppercase; margin-bottom: 0.55rem;
+        }}
+        .lb-row {{
+            display: grid;
+            grid-template-columns: 38px 1.5fr 2fr 1.7fr;
+            gap: 0.6rem; align-items: center;
+            padding: 0.4rem 0; border-bottom: 1px solid #F1F2F7;
+            transition: background 160ms ease;
+        }}
+        .lb-row:last-child {{ border-bottom: none; }}
+        .lb-row:hover {{ background: #FAFBFE; }}
+        .lb-rank {{
+            font-weight: 900; font-size: 0.95rem;
+            text-align: center; padding: 0.18rem 0; border-radius: 8px;
+        }}
+        .lb-rank.lb-top {{
+            background: linear-gradient(135deg, {NAVY}, {RED}); color: white;
+        }}
+        .lb-rank.lb-mid {{
+            background: #F4F5FA; color: {NAVY};
+        }}
+        .lb-name {{ font-weight: 700; color: {NAVY}; font-size: 0.88rem; line-height: 1.2; }}
+        .lb-bar-wrap {{
+            position: relative; background: #F4F5FA; height: 10px; border-radius: 999px;
+            overflow: hidden;
+        }}
+        .lb-bar {{
+            position: absolute; left: 0; top: 0; bottom: 0;
+            background: linear-gradient(90deg, {NAVY}, {RED});
+            border-radius: 999px;
+            animation: cdcLbGrow 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }}
+        @keyframes cdcLbGrow {{
+            0% {{ transform: scaleX(0); transform-origin: left; }}
+            100% {{ transform: scaleX(1); transform-origin: left; }}
+        }}
+        .lb-stats {{
+            display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end;
+            font-size: 0.74rem;
+        }}
+        .lb-count {{ font-weight: 800; color: {NAVY}; font-size: 0.92rem; }}
+        .lb-share {{
+            background: #F4F5FA; color: {NAVY}; border: 1px solid #EFF1F6;
+            padding: 0.08rem 0.45rem; border-radius: 999px; font-weight: 700;
+        }}
+        .lb-fund {{
+            background: rgba(34,122,74,0.10); color: {GREEN}; border: 1px solid rgba(34,122,74,0.30);
+            padding: 0.08rem 0.45rem; border-radius: 999px; font-weight: 700;
+        }}
+        @media (max-width: 720px) {{
+            .lb-row {{ grid-template-columns: 32px 1fr; grid-auto-flow: row; }}
+            .lb-bar-wrap, .lb-stats {{ grid-column: 1 / -1; }}
+        }}
+        /* Sector deep-dive panel */
+        .deep-dive {{
+            background: #FFFFFF; border: 1px solid #EEF0F6; border-radius: 16px;
+            padding: 1rem 1.1rem; margin-top: 0.7rem;
+            box-shadow: 0 20px 40px -28px rgba(39,46,95,0.30);
+        }}
+        .deep-dive .dd-head {{
+            display:flex; align-items:center; justify-content:space-between; gap:0.5rem;
+            margin-bottom: 0.6rem;
+        }}
+        .deep-dive .dd-title {{
+            font-weight: 800; color: {NAVY}; font-size: 1.05rem;
+        }}
+        .deep-dive .dd-badge {{
+            background: linear-gradient(135deg, {NAVY}, {RED}); color: white;
+            padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.7rem;
+            font-weight: 800; letter-spacing: 0.3px;
+        }}
+        .dd-kpi-row {{
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.55rem; margin-bottom: 0.7rem;
+        }}
+        .dd-kpi {{
+            background: #FAFBFE; border: 1px solid #EFF1F6; border-radius: 12px;
+            padding: 0.55rem 0.75rem;
+        }}
+        .dd-kpi .l {{ font-size: 0.7rem; color: {MUTED}; letter-spacing: 0.3px; text-transform: uppercase; }}
+        .dd-kpi .v {{ font-size: 1.1rem; font-weight: 800; color: {NAVY}; }}
+        .dd-table {{ width:100%; border-collapse: collapse; font-size: 0.84rem; }}
+        .dd-table th {{
+            text-align:left; background:{NAVY}; color: white;
+            padding: 0.4rem 0.55rem; font-size: 0.74rem; letter-spacing: 0.3px;
+        }}
+        .dd-table td {{ padding: 0.4rem 0.55rem; border-bottom: 1px solid #F1F2F7; }}
+        .dd-table tr:hover td {{ background: #FAFBFE; }}
+        .dd-chip-funded {{
+            background: rgba(34,122,74,0.10); color: {GREEN};
+            border: 1px solid rgba(34,122,74,0.30);
+            padding: 0.08rem 0.45rem; border-radius: 999px;
+            font-size: 0.7rem; font-weight: 700;
+        }}
         /* Skeleton shimmer (for slow loads / placeholders) */
         .cdc-skel {{
             background: linear-gradient(90deg, #F3F4F8 0%, #E9EBF1 40%, #F3F4F8 80%);
@@ -5673,16 +5909,143 @@ def run_app() -> None:
             f"<h3>{sector_title}</h3></div>",
             unsafe_allow_html=True,
         )
+        sector_options = list(df["sector"].value_counts().head(20).index)
+        if sector_options:
+            sec_pick_lbl = ("Zoom secteur" if is_fr_eco else "Sector zoom")
+            picked = st.selectbox(
+                sec_pick_lbl, options=sector_options, key="ecosystem_sector_zoom",
+            )
+            sub = df[df["sector"].astype(str) == str(picked)]
+            sub_n = int(len(sub))
+            sub_funded = int(sub.get("funded", pd.Series([0])).sum()) if "funded" in sub.columns else 0
+            funded_pct = sub_funded / max(1, sub_n)
+            years_v = pd.to_numeric(sub.get("founding_year", pd.Series([])), errors="coerce").dropna()
+            avg_year = int(years_v.mean()) if not years_v.empty else None
+            regions_v = sub.get("Region", pd.Series([], dtype=str)).dropna().astype(str)
+            n_regions = int(regions_v.nunique()) if not regions_v.empty else 0
+
+            kpi_labels = (
+                ("Startups", "Financees", "Cohorte moyenne", "Regions couvertes")
+                if is_fr_eco
+                else ("Startups", "Funded", "Avg cohort", "Regions covered")
+            )
+            kpi_values = (
+                f"{sub_n:,}",
+                f"{sub_funded} ({funded_pct:.0%})",
+                str(avg_year) if avg_year else "-",
+                str(n_regions),
+            )
+            kpi_html = "".join(
+                f"<div class='dd-kpi'><div class='l'>{l}</div><div class='v'>{v}</div></div>"
+                for l, v in zip(kpi_labels, kpi_values)
+            )
+
+            top5 = sub.head(0)
+            if "Nom" in sub.columns:
+                top5 = sub.sort_values(
+                    "founding_year",
+                    ascending=False,
+                    na_position="last",
+                ).head(5)
+            cols_hdr = (
+                ("Startup", "Region", "Annee", "Statut")
+                if is_fr_eco
+                else ("Startup", "Region", "Year", "Status")
+            )
+            rows_html: list[str] = []
+            for _, r in top5.iterrows():
+                name_d = str(r.get("Nom", "")) if "Nom" in top5.columns else ""
+                if not name_d:
+                    continue
+                region_d = str(r.get("Region", "")) if "Region" in top5.columns else ""
+                try:
+                    year_d = (
+                        f"{int(r.get('founding_year'))}"
+                        if pd.notna(r.get("founding_year")) else "-"
+                    )
+                except Exception:
+                    year_d = "-"
+                is_funded = int(r.get("funded", 0)) == 1 if "funded" in top5.columns else False
+                status_html = (
+                    f"<span class='dd-chip-funded'>"
+                    f"{('Financee' if is_fr_eco else 'Funded')}</span>"
+                    if is_funded
+                    else ("<span class='small-muted'>"
+                          + ("Non finance" if is_fr_eco else "Not funded")
+                          + "</span>")
+                )
+                rows_html.append(
+                    f"<tr>"
+                    f"<td><b>{name_d[:48]}</b></td>"
+                    f"<td>{region_d[:24]}</td>"
+                    f"<td>{year_d}</td>"
+                    f"<td>{status_html}</td>"
+                    f"</tr>"
+                )
+            table_html = ""
+            if rows_html:
+                head_html = "".join(f"<th>{h}</th>" for h in cols_hdr)
+                table_html = (
+                    f"<table class='dd-table'><thead><tr>{head_html}</tr></thead>"
+                    f"<tbody>{''.join(rows_html)}</tbody></table>"
+                )
+            else:
+                table_html = (
+                    "<div class='small-muted'>"
+                    + ("Pas de startup nominee pour ce secteur."
+                       if is_fr_eco
+                       else "No named startups for this sector.")
+                    + "</div>"
+                )
+            badge_txt = ("Zoom" if is_fr_eco else "Zoom")
+            title_dd = (
+                f"{picked} - {('aperçu' if is_fr_eco else 'snapshot')}"
+            )
+            st.markdown(
+                f"<div class='deep-dive'>"
+                f"  <div class='dd-head'>"
+                f"    <span class='dd-title'>{title_dd}</span>"
+                f"    <span class='dd-badge'>{badge_txt}</span>"
+                f"  </div>"
+                f"  <div class='dd-kpi-row'>{kpi_html}</div>"
+                f"  {table_html}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
         c_left, c_right = st.columns([1.4, 1])
         with c_left:
-            top = df["sector"].value_counts().head(14)
-            tree_title = (
-                "Top secteurs (taille = nombre de startups)"
-                if is_fr_eco
-                else "Top sectors (size = number of startups)"
+            top = df["sector"].value_counts().head(10)
+            total_df = max(1, int(len(df)))
+            lb_rows: list[str] = []
+            for rank, (sec, cnt) in enumerate(top.items(), start=1):
+                share = cnt / total_df
+                sub = df[df["sector"].astype(str) == str(sec)]
+                funded_n = int(sub.get("funded", pd.Series([0])).sum()) if "funded" in sub.columns else 0
+                funded_rate = funded_n / max(1, len(sub))
+                bar_pct = max(2, int(share * 100 * 2.2))
+                rank_class = "lb-top" if rank <= 3 else "lb-mid"
+                lb_rows.append(
+                    f"<div class='lb-row'>"
+                    f"  <div class='lb-rank {rank_class}'>{rank:02d}</div>"
+                    f"  <div class='lb-name'>{sec}</div>"
+                    f"  <div class='lb-bar-wrap'>"
+                    f"    <div class='lb-bar' style='width:{bar_pct}%'></div>"
+                    f"  </div>"
+                    f"  <div class='lb-stats'>"
+                    f"    <span class='lb-count'>{cnt}</span>"
+                    f"    <span class='lb-share'>{share:.0%}</span>"
+                    f"    <span class='lb-fund'>{funded_rate:.0%} funded</span>"
+                    f"  </div>"
+                    f"</div>"
+                )
+            lb_title = ("Top secteurs - leaderboard" if is_fr_eco
+                        else "Top sectors leaderboard")
+            st.markdown(
+                f"<div class='leaderboard'><div class='lb-head'>{lb_title}</div>"
+                f"{''.join(lb_rows)}</div>",
+                unsafe_allow_html=True,
             )
-            st.plotly_chart(plotly_treemap(top, tree_title),
-                            use_container_width=True, config={"displayModeBar": False})
         with c_right:
             st.markdown(
                 "**Dynamique annuelle**" if is_fr_eco else "**Yearly cadence**"
