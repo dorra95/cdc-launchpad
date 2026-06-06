@@ -912,36 +912,65 @@ def _smtp_setting(key: str) -> str:
 
 
 def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
-    """Attempt SMTP send; fall back to admin log + stdout if creds absent."""
+    """Attempt SMTP send; return (ok, channel) where channel is one of:
+       'email' (sent), 'admin_log' (no SMTP creds), or 'smtp_error:<detail>'."""
     host = _smtp_setting("CDC_SMTP_HOST")
     user = _smtp_setting("CDC_SMTP_USER")
     pwd = _smtp_setting("CDC_SMTP_PASS")
     sender = _smtp_setting("CDC_SMTP_FROM") or user or ADMIN_EMAIL
+    port_setting = _smtp_setting("CDC_SMTP_PORT")
     body = (
         "Bonjour,\n\nVotre code d'acces a la plateforme CDC LAUNCHPAD est : "
         f"{code}\n\nCe code expire dans {ACCESS_CODE_TTL_MIN} minutes.\n\n"
         "Si vous n'avez pas demande d'acces, ignorez ce message.\n\n— CDC Tunisie"
     )
+
+    def _build_msg() -> "MIMEText":
+        m = MIMEText(body, "plain", "utf-8")
+        m["Subject"] = "CDC LAUNCHPAD - votre code d'acces"
+        m["From"] = sender
+        m["To"] = to_addr
+        return m
+
+    smtp_error: str = ""
     if host and user and pwd:
-        try:
-            msg = MIMEText(body, "plain", "utf-8")
-            msg["Subject"] = "CDC LAUNCHPAD - votre code d'acces"
-            msg["From"] = sender
-            msg["To"] = to_addr
-            with smtplib.SMTP_SSL(host, 465, timeout=10) as smtp:
-                smtp.login(user, pwd)
-                smtp.sendmail(sender, [to_addr], msg.as_string())
-            return True, "email"
-        except Exception as exc:
-            print(f"[CDC LAUNCHPAD] SMTP error: {exc!r}", flush=True)
-    # Fallback: emit the code to stdout (visible in Streamlit Cloud logs) and write to a local file.
+        ports_to_try: list[tuple[int, str]] = []
+        if port_setting:
+            try:
+                p = int(port_setting)
+                ports_to_try.append((p, "ssl" if p == 465 else "starttls"))
+            except ValueError:
+                pass
+        if not ports_to_try:
+            ports_to_try = [(465, "ssl"), (587, "starttls")]
+        for port, mode in ports_to_try:
+            try:
+                if mode == "ssl":
+                    with smtplib.SMTP_SSL(host, port, timeout=12) as smtp:
+                        smtp.login(user, pwd)
+                        smtp.sendmail(sender, [to_addr], _build_msg().as_string())
+                else:
+                    with smtplib.SMTP(host, port, timeout=12) as smtp:
+                        smtp.ehlo()
+                        smtp.starttls()
+                        smtp.ehlo()
+                        smtp.login(user, pwd)
+                        smtp.sendmail(sender, [to_addr], _build_msg().as_string())
+                return True, "email"
+            except Exception as exc:
+                smtp_error = f"{type(exc).__name__}: {exc}"
+                print(f"[CDC LAUNCHPAD] SMTP {host}:{port} failed - {smtp_error}", flush=True)
+                continue
+
+    # Fallback path. Always log + write to file, so the admin can recover the code.
     banner = (
         "================================================================\n"
-        f"[CDC LAUNCHPAD] DEV-MODE ACCESS CODE (no SMTP configured)\n"
+        f"[CDC LAUNCHPAD] ACCESS CODE (fallback - {'SMTP error' if smtp_error else 'no SMTP creds'})\n"
         f"  email   : {to_addr}\n"
         f"  code    : {code}\n"
         f"  expires : {ACCESS_CODE_TTL_MIN} min from now\n"
-        "================================================================"
+        + (f"  smtp    : {smtp_error}\n" if smtp_error else "")
+        + "================================================================"
     )
     print(banner, flush=True)
     try:
@@ -953,6 +982,8 @@ def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
             w.writerow([dt.datetime.utcnow().isoformat(), to_addr, code])
     except Exception:
         pass
+    if smtp_error:
+        return True, f"smtp_error:{smtp_error[:160]}"
     return True, "admin_log"
 
 
@@ -1714,10 +1745,25 @@ BERKUS_FACTORS: list[str] = [
 ENSEMBLE_WEIGHTS: dict[str, float] = {
     "Berkus": 0.20,
     "Scorecard (Payne)": 0.25,
-    "Risk Factor Summation": 0.15,
-    "Venture Capital Method": 0.20,
-    "Hybrid DCF": 0.20,
+    "Risk Factor Summation": 0.20,
+    "Venture Capital Method": 0.25,
+    "Hybrid DCF": 0.10,
 }
+ENSEMBLE_WEIGHTS_PRE_REVENUE: dict[str, float] = {
+    "Berkus": 0.25,
+    "Scorecard (Payne)": 0.28,
+    "Risk Factor Summation": 0.22,
+    "Venture Capital Method": 0.25,
+    "Hybrid DCF": 0.00,
+}
+
+
+def active_ensemble_weights(fmva: dict[str, Any]) -> dict[str, float]:
+    """Return the weights to use: pre-revenue zeros DCF and rebalances the rest."""
+    if fmva.get("is_pre_revenue"):
+        return ENSEMBLE_WEIGHTS_PRE_REVENUE
+    revenue = float((fmva.get("vc") or {}).get("current_revenue_tnd", 0) or 0)
+    return ENSEMBLE_WEIGHTS_PRE_REVENUE if revenue <= 0 else ENSEMBLE_WEIGHTS
 
 
 def auto_fmva_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
@@ -1800,6 +1846,7 @@ def auto_fmva_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     return {
         "baseline_usd": TUNISIA_BASELINE_USD,
         "tnd_per_usd": TND_PER_USD,
+        "is_pre_revenue": revenue_tnd <= 0,
         "berkus": berkus,
         "scorecard": scorecard,
         "rfs": rfs,
@@ -1863,9 +1910,13 @@ def fmva_valuation(fmva: dict[str, Any]) -> dict[str, Any]:
         "Venture Capital Method": vc_usd,
         "Hybrid DCF": dcf_usd,
     }
-    weighted_sum = sum(ENSEMBLE_WEIGHTS[m] * v for m, v in methods.items())
-    low = min(methods.values())
-    high = max(methods.values())
+    weights = active_ensemble_weights(fmva)
+    is_pre_revenue = weights is ENSEMBLE_WEIGHTS_PRE_REVENUE
+    weighted_sum = sum(weights[m] * v for m, v in methods.items())
+    # Spread excludes methods with zero weight (e.g. DCF on pre-revenue).
+    nonzero_vals = [v for m, v in methods.items() if weights[m] > 0]
+    low = min(nonzero_vals) if nonzero_vals else 0.0
+    high = max(nonzero_vals) if nonzero_vals else 0.0
     iqr_ratio = (high - low) / max(1.0, weighted_sum)
     review_flag = iqr_ratio > 0.6
 
@@ -1874,6 +1925,8 @@ def fmva_valuation(fmva: dict[str, Any]) -> dict[str, Any]:
         "methods_tnd": {m: v * tnd_per_usd for m, v in methods.items()},
         "ensemble_usd": weighted_sum,
         "ensemble_tnd": weighted_sum * tnd_per_usd,
+        "weights": dict(weights),
+        "is_pre_revenue": is_pre_revenue,
         "low_usd": low,
         "high_usd": high,
         "iqr_ratio": iqr_ratio,
@@ -2068,8 +2121,9 @@ def fmva_workbook_excel(payload: dict[str, Any], fmva: dict[str, Any], result: d
     ws["A1"] = "Ensemble Valuation — Triangulated"
     ws["A1"].font = Font(size=13, bold=True, color="272E5F")
     header(ws, 3, ["Method", "Valuation (USD)", "Weight", "Weighted (USD)"], fill=red)
+    active_w = result.get("weights", ENSEMBLE_WEIGHTS)
     for i, (m, v) in enumerate(result["methods_usd"].items(), start=4):
-        w = ENSEMBLE_WEIGHTS[m]
+        w = active_w.get(m, 0.0)
         body_row(ws, i, [m, round(v), w, round(v * w)])
     end = 4 + len(result["methods_usd"])
     ws.cell(end + 1, 1, "ENSEMBLE VALUATION (USD)").font = bold
@@ -2694,10 +2748,11 @@ def fmva_pdf(
         elements.append(Spacer(1, 6))
 
     rows = [list(L["method_table_header"])]
+    active_w_pdf = result.get("weights", ENSEMBLE_WEIGHTS)
     for m, v in result["methods_usd"].items():
         rows.append([m, f"${v:,.0f}",
                      f"{result['methods_tnd'][m]:,.0f}",
-                     f"{ENSEMBLE_WEIGHTS[m]:.0%}"])
+                     f"{active_w_pdf.get(m, 0.0):.0%}"])
     rows.append([L["ensemble_row"], f"${result['ensemble_usd']:,.0f}",
                  f"{result['ensemble_tnd']:,.0f}", "100%"])
     table = Table(rows, colWidths=[55 * mm, 35 * mm, 35 * mm, 22 * mm])
@@ -2717,12 +2772,149 @@ def fmva_pdf(
     elements.append(Spacer(1, 8))
 
     elements.append(Paragraph(L["details"], h2))
+    method_meta = {
+        "Berkus": {
+            "formula_fr": "Somme des 5 facteurs de derisque (idee, prototype, equipe, partenariats, ventes) plafonnes a 500 000 USD chacun. Plafond global 2,5 MUSD.",
+            "formula_en": "Sum of 5 risk-reduction factors (idea, prototype, team, partnerships, sales), each capped at USD 500,000. Hard cap USD 2.5M.",
+            "source": "Dave Berkus, 1996 (revised 2016) - The Berkus Method.",
+            "benchmark_fr": "Sert de plancher pre-revenu. Adapte aux startups pre-seed et seed.",
+            "benchmark_en": "Acts as a pre-revenue floor. Best fit for pre-seed and seed.",
+        },
+        "Scorecard (Payne)": {
+            "formula_fr": "Pre-money = baseline x somme(ponderation_i x note_i) ou note_i in [0,5; 1,5]. Baseline regionale tunisienne : 1,8 MUSD.",
+            "formula_en": "Pre-money = baseline x sum(weight_i x score_i) with score_i in [0.5; 1.5]. Tunisian baseline: USD 1.8M.",
+            "source": "Bill Payne, 2007 - Scorecard Valuation Methodology.",
+            "benchmark_fr": "Multiplicateur typique entre 0,8x et 1,4x sur des startups tunisiennes seed.",
+            "benchmark_en": "Typical multiplier 0.8x-1.4x on Tunisian seed startups.",
+        },
+        "Risk Factor Summation": {
+            "formula_fr": "Pre-money = baseline + somme(rating_i x increment) avec rating_i in [-2;+2] et increment 250 KUSD sur 12 dimensions de risque.",
+            "formula_en": "Pre-money = baseline + sum(rating_i x increment) with rating_i in [-2;+2] and a USD 250K increment across 12 risk dimensions.",
+            "source": "Ohio TechAngel Funds - Risk Factor Summation method.",
+            "benchmark_fr": "Permet d'isoler les risques sectoriels (regulatoire, technologique, exit) plus finement que Berkus.",
+            "benchmark_en": "Isolates sectoral risks (regulatory, technological, exit) more finely than Berkus.",
+        },
+        "Venture Capital Method": {
+            "formula_fr": "Sortie projetee = CA x (1+g)^n x multiple. Post-money = sortie / rendement cible. Pre-money = post-money - taille du tour.",
+            "formula_en": "Projected exit = revenue x (1+g)^n x multiple. Post-money = exit / target return. Pre-money = post-money - round size.",
+            "source": "William Sahlman, Harvard Business School, 1989 - VC Method.",
+            "benchmark_fr": "Rendement cible typique 8x-12x sur cycle de 5 ans pour le VC tunisien.",
+            "benchmark_en": "Typical target return 8x-12x over a 5-year cycle for Tunisian VC.",
+        },
+        "Hybrid DCF": {
+            "formula_fr": "Somme des EBITDA actualises sur 5 ans + valeur terminale (EBITDA an 5 x multiple) actualisee, divisee par TND/USD.",
+            "formula_en": "Sum of 5-year discounted EBITDA + terminal value (year-5 EBITDA x multiple) discounted, divided by TND/USD.",
+            "source": "Standard corporate finance (Damodaran, Brealey-Myers-Allen).",
+            "benchmark_fr": "WACC tunisien typique 25%-30%. Multiple terminal sectoriel 4x-6x.",
+            "benchmark_en": "Typical Tunisian WACC 25%-30%. Sector terminal multiple 4x-6x.",
+        },
+    }
     for m, v in result["methods_usd"].items():
-        elements.append(Paragraph(f"<b>{m}</b>", body))
+        meta = method_meta.get(m, {})
+        if active_w_pdf.get(m, 0) == 0:
+            elements.append(Paragraph(f"<b>{m}</b> - <i>"
+                                      f"{'desactive (pre-revenu)' if is_fr else 'disabled (pre-revenue)'}"
+                                      f"</i>", body))
+        else:
+            elements.append(Paragraph(f"<b>{m}</b>", body))
         elements.append(Paragraph(method_rationale(m, v, fmva, result), body))
-        elements.append(Spacer(1, 4))
+        if meta:
+            elements.append(Paragraph(
+                f"<i>{('Formule' if is_fr else 'Formula')}:</i> "
+                f"{meta['formula_fr'] if is_fr else meta['formula_en']}", small))
+            elements.append(Paragraph(
+                f"<i>{('Source' if is_fr else 'Source')}:</i> {meta['source']}", small))
+            elements.append(Paragraph(
+                f"<i>{('Benchmark' if is_fr else 'Benchmark')}:</i> "
+                f"{meta['benchmark_fr'] if is_fr else meta['benchmark_en']}", small))
+        elements.append(Spacer(1, 6))
 
+    # Calculation appendix
     elements.append(Spacer(1, 4))
+    elements.append(Paragraph(
+        "Annexe - calculs detailles" if is_fr else "Appendix - detailed calculations", h2))
+    # Berkus breakdown
+    if "berkus_breakdown" in result:
+        elements.append(Paragraph(f"<b>Berkus</b>", body))
+        rows_b = [[("Facteur" if is_fr else "Factor"), "Valeur USD"]]
+        for k, v in result["berkus_breakdown"].items():
+            rows_b.append([k, f"${v:,.0f}"])
+        rows_b.append([("Total" if is_fr else "Total"),
+                       f"${sum(result['berkus_breakdown'].values()):,.0f}"])
+        bt = Table(rows_b, colWidths=[80 * mm, 40 * mm])
+        bt.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor(LINE)),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor(LIGHT)),
+        ]))
+        elements.append(bt); elements.append(Spacer(1, 4))
+
+    # VC breakdown
+    if "vc_breakdown" in result:
+        vcb = result["vc_breakdown"]
+        elements.append(Paragraph(f"<b>Venture Capital Method</b>", body))
+        rows_v = [
+            [("Sortie projetee (TND)" if is_fr else "Projected exit (TND)"),
+             f"{vcb['projected_exit_tnd']:,.0f}"],
+            [("Sortie projetee (USD)" if is_fr else "Projected exit (USD)"),
+             f"${vcb['projected_exit_usd']:,.0f}"],
+            [("Post-money (USD)" if is_fr else "Post-money (USD)"),
+             f"${vcb['post_money_usd']:,.0f}"],
+            [("Taille du tour (USD)" if is_fr else "Round size (USD)"),
+             f"${vcb['round_size_usd']:,.0f}"],
+        ]
+        vt = Table(rows_v, colWidths=[80 * mm, 40 * mm])
+        vt.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor(LINE)),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, colors.HexColor(LIGHT)]),
+        ]))
+        elements.append(vt); elements.append(Spacer(1, 4))
+
+    # DCF breakdown
+    if "dcf_breakdown" in result and active_w_pdf.get("Hybrid DCF", 0) > 0:
+        db = result["dcf_breakdown"]
+        elements.append(Paragraph(f"<b>Hybrid DCF</b>", body))
+        rows_d = [[("Annee" if is_fr else "Year"), "EBITDA (TND)", "PV (TND)"]]
+        for p in db["path"]:
+            rows_d.append([str(p["year"]), f"{p['ebitda']:,.0f}", f"{p['pv']:,.0f}"])
+        rows_d.append([("Somme PV explicite" if is_fr else "Sum PV explicit"),
+                       "", f"{db['pv_explicit_tnd']:,.0f}"])
+        rows_d.append([("Valeur terminale" if is_fr else "Terminal value"),
+                       "", f"{db['terminal_tnd']:,.0f}"])
+        rows_d.append([("Enterprise value (TND)" if is_fr else "Enterprise value (TND)"),
+                       "", f"{db['enterprise_tnd']:,.0f}"])
+        dt_ = Table(rows_d, colWidths=[60 * mm, 35 * mm, 35 * mm])
+        dt_.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor(LINE)),
+            ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ]))
+        elements.append(dt_); elements.append(Spacer(1, 4))
+
+    # References
+    elements.append(Paragraph(
+        "References" if not is_fr else "References", h2))
+    refs = [
+        "Berkus D., 'After 20+ Years - Updating the Berkus Method', 2016.",
+        "Payne B., 'Scorecard Valuation Methodology', Frontier Angel Fund, 2007.",
+        "Ohio TechAngel Funds, 'Risk Factor Summation Method'.",
+        "Sahlman W. A., 'The Venture Capital Method', Harvard Business School, 1989.",
+        "Damodaran A., 'Investment Valuation', 3rd ed., Wiley.",
+        "Smart Capital Tunisia - Tunisian VC baseline data (Anava programme).",
+    ]
+    for ref in refs:
+        elements.append(Paragraph(f"- {ref}", small))
+
+    elements.append(Spacer(1, 6))
     elements.append(Paragraph(
         f"<font size=8 color='#6B7280'>{L['footer']}</font>", body))
     doc.build(elements)
@@ -3362,7 +3554,8 @@ def plotly_donut_methods(result: dict[str, Any]) -> Any:
     import plotly.graph_objects as go
 
     methods = list(result["methods_usd"].keys())
-    weighted = [result["methods_usd"][m] * ENSEMBLE_WEIGHTS[m] for m in methods]
+    active_w = result.get("weights", ENSEMBLE_WEIGHTS)
+    weighted = [result["methods_usd"][m] * active_w.get(m, 0.0) for m in methods]
     palette = [NAVY, RED, GOLD, TEAL, VIOLET]
     fig = go.Figure(data=[go.Pie(
         labels=methods, values=weighted, hole=0.62,
@@ -4078,6 +4271,8 @@ def _render_programs_tab(lang: str) -> None:
         labels = ("Budget", "Periode", "Stade") if is_fr else ("Budget", "Period", "Stage")
         cta = "Ouvrir la source" if is_fr else "Open source"
         svg = _svg_cover(prog["name"] + prog["operator"], c1, c2, 600, 200)
+        photo_seed = (prog["name"] + prog["operator"]).replace(" ", "-")[:48]
+        photo_url = f"https://picsum.photos/seed/{photo_seed}/600/260"
         # Per-programme indicative metrics (3 mini-stats derived from public facts)
         metric_labels_fr = ("Partenaires", "Stade", "Budget")
         metric_labels_en = ("Partners", "Stage", "Budget")
@@ -4092,6 +4287,7 @@ def _render_programs_tab(lang: str) -> None:
         cards_html.append(
             f"<div class='prog-card'>"
             f"  <div class='prog-cover'>"
+            f"    <img class='prog-cover-photo' src='{photo_url}' alt='' loading='lazy'/>"
             f"    <div class='prog-cover-svg'>{svg}</div>"
             f"    <div class='prog-name'>{prog['name']}</div>"
             f"    <div class='prog-op'>{prog['operator']}</div>"
@@ -4274,9 +4470,12 @@ def _render_newsroom_tab(lang: str) -> None:
         date_str = _fmt_date(art["date"], lang)
         read_cta = "Lire la source" if is_fr else "Read the source"
         svg = _svg_cover(art["title_en"] + art["source"] + art["date"], c1, c2, 600, 160)
+        photo_seed = (art["title_en"] + art["source"]).replace(" ", "-")[:48]
+        photo_url = f"https://picsum.photos/seed/{photo_seed}/600/220"
         cards_html.append(
             f"<div class='news-card'>"
             f"  <div class='news-cover'>"
+            f"    <img class='news-cover-photo' src='{photo_url}' alt='' loading='lazy'/>"
             f"    <div class='news-cover-svg'>{svg}</div>"
             f"    <span class='news-tag'>{art['tag']}</span>"
             f"    <span class='news-date'>{date_str}</span>"
@@ -4843,12 +5042,31 @@ def _inject_css() -> None:
             padding: 1rem 1.1rem; color:white; position: relative;
             overflow: hidden; min-height: 92px;
         }}
-        .prog-cover-svg, .news-cover-svg {{
-            position: absolute; inset: 0; z-index: 0; pointer-events: none;
-            opacity: 0.95;
+        .prog-cover-photo, .news-cover-photo {{
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; z-index: 0; pointer-events: none;
         }}
-        .prog-cover > *:not(.prog-cover-svg) {{ position: relative; z-index: 2; }}
-        .news-cover > *:not(.news-cover-svg) {{ position: relative; z-index: 2; }}
+        .prog-cover-svg, .news-cover-svg {{
+            position: absolute; inset: 0; z-index: 1; pointer-events: none;
+            opacity: 0.78;
+            mix-blend-mode: multiply;
+        }}
+        .prog-cover, .news-cover {{ isolation: isolate; }}
+        .prog-cover::after, .news-cover::after {{
+            content:''; position:absolute; inset:0; z-index:2; pointer-events:none;
+            background: linear-gradient(180deg,
+                rgba(0,0,0,0.05) 0%,
+                rgba(0,0,0,0.20) 55%,
+                rgba(0,0,0,0.55) 100%);
+        }}
+        .prog-cover > *:not(.prog-cover-svg):not(.prog-cover-photo) {{
+            position: relative; z-index: 3;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+        }}
+        .news-cover > *:not(.news-cover-svg):not(.news-cover-photo) {{
+            position: relative; z-index: 3;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+        }}
         .prog-cover::after {{
             content:''; position:absolute; inset:0;
             background: radial-gradient(220px 110px at 90% 20%, rgba(255,255,255,0.22), transparent 60%);
@@ -5249,39 +5467,59 @@ def run_app() -> None:
                     issued = issue_access_code(email_clean)
                     session["auth_issued"] = issued
                     session["auth_email"] = email_clean
-                    if issued["ok"] and issued["channel"] == "email":
+                    channel = issued.get("channel", "")
+                    if issued["ok"] and channel == "email":
                         st.success(
                             "Code envoye par email. Verifiez votre boite de reception (et vos spams)."
                             if lang == "FR"
-                            else "Code sent by email. Check your inbox (and spam folder)."
+                            else "Code sent by email. Check your inbox (spam folder included)."
                         )
-                    elif issued["ok"] and issued["channel"] == "admin_log":
+                    elif issued["ok"] and channel.startswith("smtp_error:"):
+                        detail = channel.split(":", 1)[1]
+                        if lang == "FR":
+                            st.error(
+                                "Envoi SMTP echoue. Verifiez les secrets "
+                                "`CDC_SMTP_HOST`, `CDC_SMTP_USER`, `CDC_SMTP_PASS`, "
+                                "`CDC_SMTP_FROM` et `CDC_SMTP_PORT` (Streamlit Cloud : "
+                                "*Settings -> Secrets*)."
+                            )
+                            st.caption(f"Detail technique : {detail}")
+                        else:
+                            st.error(
+                                "SMTP send failed. Double-check the secrets "
+                                "`CDC_SMTP_HOST`, `CDC_SMTP_USER`, `CDC_SMTP_PASS`, "
+                                "`CDC_SMTP_FROM` and `CDC_SMTP_PORT` "
+                                "(Streamlit Cloud: *Settings -> Secrets*)."
+                            )
+                            st.caption(f"Technical detail: {detail}")
+                    elif issued["ok"] and channel == "admin_log":
                         if lang == "FR":
                             st.warning(
-                                "SMTP non configure (mode developpement). "
-                                "L'administrateur peut recuperer le code de l'une des facons suivantes :"
+                                "Aucun SMTP configure. L'administrateur peut "
+                                "recuperer le code dans les logs ou configurer SMTP."
                             )
                             st.markdown(
-                                "- **Streamlit Cloud** : ouvrir *Manage app* en bas a droite, "
-                                "onglet *Logs*, chercher la banniere `DEV-MODE ACCESS CODE`.\n"
-                                "- **Local** : voir le terminal ou tourne `streamlit run`, ou ouvrir le "
-                                f"fichier `{os.path.basename(ACCESS_LOG)}` a cote de `app.py`.\n"
-                                "- **Production** : ajouter les secrets `CDC_SMTP_HOST`, "
-                                "`CDC_SMTP_USER`, `CDC_SMTP_PASS`, `CDC_SMTP_FROM` "
-                                "(Streamlit Cloud : *Settings -> Secrets*) puis redemander un code."
+                                "- **Streamlit Cloud** : *Manage app -> Logs* "
+                                "puis chercher `ACCESS CODE`.\n"
+                                f"- **Local** : terminal `streamlit run`, ou fichier "
+                                f"`{os.path.basename(ACCESS_LOG)}`.\n"
+                                "- **Production** : ajouter les secrets "
+                                "`CDC_SMTP_HOST`, `CDC_SMTP_USER`, `CDC_SMTP_PASS`, "
+                                "`CDC_SMTP_FROM` (Streamlit Cloud : *Settings -> Secrets*)."
                             )
                         else:
                             st.warning(
-                                "SMTP not configured (dev mode). Admin can retrieve the code one of these ways:"
+                                "No SMTP configured. Admin can retrieve the code "
+                                "from the logs or configure SMTP."
                             )
                             st.markdown(
-                                "- **Streamlit Cloud**: open *Manage app* (bottom-right), *Logs* tab, "
-                                "look for the `DEV-MODE ACCESS CODE` banner.\n"
-                                "- **Local**: see the terminal running `streamlit run`, or open "
-                                f"`{os.path.basename(ACCESS_LOG)}` next to `app.py`.\n"
-                                "- **Production**: add secrets `CDC_SMTP_HOST`, `CDC_SMTP_USER`, "
-                                "`CDC_SMTP_PASS`, `CDC_SMTP_FROM` (Streamlit Cloud: *Settings -> Secrets*), "
-                                "then request a new code."
+                                "- **Streamlit Cloud**: *Manage app -> Logs*, "
+                                "look for `ACCESS CODE`.\n"
+                                f"- **Local**: terminal running `streamlit run`, "
+                                f"or open `{os.path.basename(ACCESS_LOG)}`.\n"
+                                "- **Production**: add secrets `CDC_SMTP_HOST`, "
+                                "`CDC_SMTP_USER`, `CDC_SMTP_PASS`, `CDC_SMTP_FROM` "
+                                "(Streamlit Cloud: *Settings -> Secrets*)."
                             )
                     else:
                         st.error("Envoi impossible. Contactez l'administrateur."
@@ -6099,12 +6337,24 @@ def run_app() -> None:
             st.plotly_chart(plotly_method_bars(result),
                             use_container_width=True, config={"displayModeBar": False})
 
+        active_w_ui = result.get("weights", ENSEMBLE_WEIGHTS)
+        cols_ui = (("Methode", "USD", "TND", "Poids") if is_fr_va
+                   else ("Method", "USD", "TND", "Weight"))
         rows = pd.DataFrame({
-            "Methode": list(result["methods_usd"].keys()),
-            "USD": [f"${v:,.0f}" for v in result["methods_usd"].values()],
-            "TND": [f"{v:,.0f}" for v in result["methods_tnd"].values()],
-            "Poids": [f"{ENSEMBLE_WEIGHTS[m]:.0%}" for m in result["methods_usd"]],
+            cols_ui[0]: list(result["methods_usd"].keys()),
+            cols_ui[1]: [f"${v:,.0f}" for v in result["methods_usd"].values()],
+            cols_ui[2]: [f"{v:,.0f}" for v in result["methods_tnd"].values()],
+            cols_ui[3]: [f"{active_w_ui.get(m, 0.0):.0%}" for m in result["methods_usd"]],
         })
+        if result.get("is_pre_revenue"):
+            st.caption(
+                "Mode pre-revenu : la methode DCF est mise a zero "
+                "(pas de cashflows fiables), le poids est redistribue sur "
+                "les autres methodes."
+                if is_fr_va
+                else "Pre-revenue mode: the DCF method is zeroed (no reliable "
+                     "cashflows), its weight is redistributed across the others."
+            )
         st.dataframe(rows, use_container_width=True, hide_index=True)
 
         st.markdown("**Justification methode par methode**")
