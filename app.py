@@ -898,8 +898,24 @@ def _hash_code(email: str, code: str) -> str:
     return hashlib.sha256(f"{email.strip().lower()}|{code}".encode()).hexdigest()
 
 
+def _shared_access_code() -> str:
+    """Optional Streamlit Cloud secret CDC_ACCESS_CODE - a shared platform passphrase
+    that lets anyone in without going through SMTP. Empty disables the mode."""
+    return _smtp_setting("CDC_ACCESS_CODE").strip()
+
+
+def _admin_emails() -> set[str]:
+    """Optional comma-separated list of admin emails (CDC_ADMIN_EMAILS).
+    When an admin requests a code and SMTP fails or is missing, the code is
+    revealed directly on screen for that admin's session."""
+    raw = _smtp_setting("CDC_ADMIN_EMAILS")
+    if not raw:
+        return set()
+    return {e.strip().lower() for e in raw.replace(";", ",").split(",") if e.strip()}
+
+
 def _smtp_setting(key: str) -> str:
-    """Read SMTP setting from Streamlit secrets first, then env, then empty."""
+    """Read setting from Streamlit secrets first, then env, then empty."""
     try:
         import streamlit as st
         if hasattr(st, "secrets"):
@@ -992,16 +1008,32 @@ def _try_send_email(to_addr: str, code: str) -> tuple[bool, str]:
 def issue_access_code(email: str) -> dict[str, Any]:
     code = f"{secrets.randbelow(1_000_000):06d}"
     ok, channel = _try_send_email(email, code)
+    is_admin = email.strip().lower() in _admin_emails()
+    # Reveal the code on screen for admin users when SMTP failed or wasn't configured.
+    reveal = (
+        is_admin and (
+            channel.startswith("smtp_error:") or channel == "admin_log"
+        )
+    )
     return {
         "ok": ok,
         "channel": channel,
         "hash": _hash_code(email, code),
         "expires": dt.datetime.utcnow() + dt.timedelta(minutes=ACCESS_CODE_TTL_MIN),
+        "reveal_code": code if reveal else "",
+        "is_admin": is_admin,
     }
 
 
 def verify_access_code(email: str, code: str, issued: dict[str, Any]) -> bool:
-    if not issued or not email or not code:
+    if not code:
+        return False
+    # Path 1: shared platform code (CDC_ACCESS_CODE secret).
+    shared = _shared_access_code()
+    if shared and secrets.compare_digest(code.strip(), shared):
+        return True
+    # Path 2 & 3: per-session email code.
+    if not issued or not email:
         return False
     if dt.datetime.utcnow() > issued.get("expires", dt.datetime.utcnow()):
         return False
@@ -5806,18 +5838,61 @@ def run_app() -> None:
     _header(lang, status_pill=status_pill_html)
 
     if not session.auth:
+        is_fr_auth = (lang == "FR")
+        shared_active = bool(_shared_access_code())
+
+        # --- Path 1: SHARED CODE (zero-SMTP, fastest path) -------------------
+        if shared_active:
+            st.markdown(
+                "<div class='section-h'><span class='pill' "
+                f"style='background:linear-gradient(135deg,{NAVY},{RED})'>"
+                f"{'Acces partage' if is_fr_auth else 'Shared access'}</span>"
+                f"<h3>{'Saisissez le code de la plateforme' if is_fr_auth else 'Enter the platform code'}</h3></div>",
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                "Aucun email necessaire. Saisissez le code partage configure dans Streamlit Cloud "
+                "(secret `CDC_ACCESS_CODE`)."
+                if is_fr_auth
+                else "No email required. Enter the shared code set in Streamlit Cloud "
+                     "(secret `CDC_ACCESS_CODE`)."
+            )
+            sc1, sc2 = st.columns([2, 1])
+            with sc1:
+                shared_code_in = st.text_input(
+                    "Code" if is_fr_auth else "Code",
+                    type="password",
+                    placeholder="********",
+                    key="auth_shared_input",
+                    label_visibility="collapsed",
+                )
+            with sc2:
+                if st.button(
+                    "Entrer" if is_fr_auth else "Enter",
+                    use_container_width=True, key="auth_shared_btn",
+                    type="primary",
+                ):
+                    if verify_access_code("", shared_code_in.strip(), {}):
+                        session.auth = True
+                        session["auth_issued"] = None
+                        st.rerun()
+                    else:
+                        st.error(t("bad_code", lang))
+            st.divider()
+
+        # --- Path 2: EMAIL CODE ----------------------------------------------
         st.markdown(
-            "<div class='section-h'><span class='pill'>Acces securise</span>"
-            "<h3>Authentification a deux etapes</h3></div>",
+            "<div class='section-h'><span class='pill'>"
+            f"{'Acces par email' if is_fr_auth else 'Access by email'}</span>"
+            f"<h3>{'Recevez un code a usage unique' if is_fr_auth else 'Get a one-time code'}</h3></div>",
             unsafe_allow_html=True,
         )
         st.caption(
-            "Saisissez votre email professionnel pour recevoir un code a usage unique "
-            "(6 chiffres, valide 20 minutes). Aucun code n'est affiche a l'ecran."
-            if lang == "FR"
-            else "Enter your professional email to receive a one-time 6-digit code "
-                 "(valid 20 minutes). No code is shown on screen."
+            "Saisissez votre email professionnel pour recevoir un code (6 chiffres, valide 20 minutes)."
+            if is_fr_auth
+            else "Enter your professional email to receive a one-time 6-digit code (20 min validity)."
         )
+
         left, right = st.columns([1, 1])
         with left:
             email_value = st.text_input(t("email", lang),
@@ -5827,84 +5902,174 @@ def run_app() -> None:
             if st.button(t("request", lang), use_container_width=True, key="req_code_btn"):
                 email_clean = email_value.strip().lower()
                 if "@" not in email_clean or "." not in email_clean.split("@")[-1]:
-                    st.error("Adresse email invalide." if lang == "FR" else "Invalid email address.")
+                    st.error("Adresse email invalide." if is_fr_auth else "Invalid email address.")
                 else:
                     issued = issue_access_code(email_clean)
                     session["auth_issued"] = issued
                     session["auth_email"] = email_clean
                     channel = issued.get("channel", "")
+                    revealed = issued.get("reveal_code", "")
+                    is_admin = issued.get("is_admin", False)
+
                     if issued["ok"] and channel == "email":
                         st.success(
                             "Code envoye par email. Verifiez votre boite de reception (et vos spams)."
-                            if lang == "FR"
+                            if is_fr_auth
                             else "Code sent by email. Check your inbox (spam folder included)."
+                        )
+                    elif revealed:
+                        # Admin email + SMTP unavailable -> reveal on screen
+                        if is_fr_auth:
+                            st.success(
+                                f"Vous etes administrateur. Voici votre code (a usage unique, 20 minutes) :"
+                            )
+                        else:
+                            st.success(
+                                f"You are an administrator. Here is your one-time code (20 min validity):"
+                            )
+                        st.markdown(
+                            f"<div style='font-family:Menlo,monospace;font-size:2.4rem;"
+                            f"font-weight:900;letter-spacing:0.6rem;color:{NAVY};"
+                            f"background:linear-gradient(135deg,#FAFBFE,#F4F5FA);"
+                            f"border:1px solid #EEF0F6;border-radius:14px;"
+                            f"padding:1rem 1.4rem;text-align:center;margin:0.4rem 0'>"
+                            f"{revealed}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(
+                            "Copiez le code et collez-le dans le champ a droite."
+                            if is_fr_auth
+                            else "Copy the code and paste it into the field on the right."
                         )
                     elif issued["ok"] and channel.startswith("smtp_error:"):
                         detail = channel.split(":", 1)[1]
-                        if lang == "FR":
+                        if is_fr_auth:
                             st.error(
-                                "Envoi SMTP echoue. Verifiez les secrets "
-                                "`CDC_SMTP_HOST`, `CDC_SMTP_USER`, `CDC_SMTP_PASS`, "
-                                "`CDC_SMTP_FROM` et `CDC_SMTP_PORT` (Streamlit Cloud : "
-                                "*Settings -> Secrets*)."
+                                "Envoi SMTP echoue. Solutions par ordre de simplicite :"
+                            )
+                            st.markdown(
+                                "1. **Le plus simple** : ajoutez le secret "
+                                "`CDC_ACCESS_CODE = \"votreCode\"` dans Streamlit Cloud. "
+                                "Aucun email requis, le code unique fonctionne pour tous.\n"
+                                "2. **Si vous etes admin** : ajoutez votre email dans "
+                                "`CDC_ADMIN_EMAILS` (separes par virgule). Le code "
+                                "sera affiche directement ici lors du prochain essai.\n"
+                                "3. **Reparer SMTP** : verifier hote/port/user/pass. "
+                                "Gmail necessite un mot de passe d'application 16 caracteres."
                             )
                             st.caption(f"Detail technique : {detail}")
                         else:
-                            st.error(
-                                "SMTP send failed. Double-check the secrets "
-                                "`CDC_SMTP_HOST`, `CDC_SMTP_USER`, `CDC_SMTP_PASS`, "
-                                "`CDC_SMTP_FROM` and `CDC_SMTP_PORT` "
-                                "(Streamlit Cloud: *Settings -> Secrets*)."
+                            st.error("SMTP send failed. Pick a fix, easiest first:")
+                            st.markdown(
+                                "1. **Easiest**: set `CDC_ACCESS_CODE = \"yourCode\"` "
+                                "in Streamlit Cloud secrets. No email needed, one code "
+                                "for the whole team.\n"
+                                "2. **If you are admin**: add your email to "
+                                "`CDC_ADMIN_EMAILS` (comma-separated). The code will "
+                                "appear here directly on the next request.\n"
+                                "3. **Fix SMTP**: check host/port/user/pass. Gmail needs "
+                                "a 16-char App Password (with 2FA enabled)."
                             )
                             st.caption(f"Technical detail: {detail}")
                     elif issued["ok"] and channel == "admin_log":
-                        if lang == "FR":
-                            st.warning(
-                                "Aucun SMTP configure. L'administrateur peut "
-                                "recuperer le code dans les logs ou configurer SMTP."
-                            )
+                        if is_fr_auth:
+                            st.warning("Aucun SMTP configure. Trois solutions :")
                             st.markdown(
-                                "- **Streamlit Cloud** : *Manage app -> Logs* "
-                                "puis chercher `ACCESS CODE`.\n"
-                                f"- **Local** : terminal `streamlit run`, ou fichier "
-                                f"`{os.path.basename(ACCESS_LOG)}`.\n"
-                                "- **Production** : ajouter les secrets "
-                                "`CDC_SMTP_HOST`, `CDC_SMTP_USER`, `CDC_SMTP_PASS`, "
-                                "`CDC_SMTP_FROM` (Streamlit Cloud : *Settings -> Secrets*)."
+                                "1. **Le plus simple** : secret "
+                                "`CDC_ACCESS_CODE = \"votreCode\"` dans Streamlit Cloud "
+                                "(Settings -> Secrets). Pas d'email requis.\n"
+                                "2. **Mode admin** : ajoutez votre email dans "
+                                "`CDC_ADMIN_EMAILS`. Le code apparaitra ici.\n"
+                                "3. **SMTP** : ajoutez `CDC_SMTP_HOST`, "
+                                "`CDC_SMTP_USER`, `CDC_SMTP_PASS`, `CDC_SMTP_FROM` "
+                                "(eventuellement `CDC_SMTP_PORT`)."
+                            )
+                            st.caption(
+                                f"En attendant : le code est dans les logs ou "
+                                f"`{os.path.basename(ACCESS_LOG)}` en local."
                             )
                         else:
-                            st.warning(
-                                "No SMTP configured. Admin can retrieve the code "
-                                "from the logs or configure SMTP."
-                            )
+                            st.warning("No SMTP configured. Three options:")
                             st.markdown(
-                                "- **Streamlit Cloud**: *Manage app -> Logs*, "
-                                "look for `ACCESS CODE`.\n"
-                                f"- **Local**: terminal running `streamlit run`, "
-                                f"or open `{os.path.basename(ACCESS_LOG)}`.\n"
-                                "- **Production**: add secrets `CDC_SMTP_HOST`, "
-                                "`CDC_SMTP_USER`, `CDC_SMTP_PASS`, `CDC_SMTP_FROM` "
-                                "(Streamlit Cloud: *Settings -> Secrets*)."
+                                "1. **Easiest**: secret "
+                                "`CDC_ACCESS_CODE = \"yourCode\"` in Streamlit Cloud "
+                                "(Settings -> Secrets). No email needed.\n"
+                                "2. **Admin mode**: add your email to "
+                                "`CDC_ADMIN_EMAILS`. The code will appear here.\n"
+                                "3. **SMTP**: add `CDC_SMTP_HOST`, `CDC_SMTP_USER`, "
+                                "`CDC_SMTP_PASS`, `CDC_SMTP_FROM` "
+                                "(and optionally `CDC_SMTP_PORT`)."
+                            )
+                            st.caption(
+                                f"In the meantime: code is in the logs or "
+                                f"`{os.path.basename(ACCESS_LOG)}` locally."
                             )
                     else:
                         st.error("Envoi impossible. Contactez l'administrateur."
-                                 if lang == "FR" else "Could not send code. Contact admin.")
+                                 if is_fr_auth else "Could not send code. Contact admin.")
         with right:
             code = st.text_input(t("code", lang), type="password", key="auth_code_input",
-                                 placeholder="6 chiffres")
+                                 placeholder="6 chiffres" if is_fr_auth else "6 digits")
             if st.button(t("enter", lang), use_container_width=True, key="enter_btn"):
                 issued = session.get("auth_issued")
-                if not issued:
-                    st.error("Demandez d'abord un code." if lang == "FR" else "Request a code first.")
-                elif verify_access_code(session.get("auth_email", ""), code.strip(), issued):
+                code_clean = code.strip()
+                # Shared code can be entered here too, no email required.
+                if not issued and not _shared_access_code():
+                    st.error("Demandez d'abord un code." if is_fr_auth else "Request a code first.")
+                elif verify_access_code(session.get("auth_email", ""), code_clean, issued or {}):
                     session.auth = True
                     session["auth_issued"] = None
                     st.rerun()
                 else:
                     st.error(t("bad_code", lang))
+
+        # --- Footer: setup guidance for admin ---------------------------------
+        with st.expander(
+            "Configurer l'acces (admin) - secrets Streamlit Cloud"
+            if is_fr_auth
+            else "Configure access (admin) - Streamlit Cloud secrets",
+            expanded=False,
+        ):
+            st.markdown(
+                "**Manage app -> Settings -> Secrets**, collez l'une de ces options :"
+                if is_fr_auth
+                else "**Manage app -> Settings -> Secrets**, paste one of these:"
+            )
+            st.code(
+                'CDC_ACCESS_CODE = "PickAnyStrongCode"',
+                language="toml",
+            )
+            st.caption(
+                "Le plus simple : un code partage par toute l'equipe, pas de SMTP."
+                if is_fr_auth
+                else "Easiest: one shared code for the whole team, no SMTP needed."
+            )
+            st.code(
+                'CDC_ADMIN_EMAILS = "dorra.fadhloun@msb.tn,backup@cdc.tn"',
+                language="toml",
+            )
+            st.caption(
+                "Mode admin : ces emails verront le code directement a l'ecran si SMTP echoue."
+                if is_fr_auth
+                else "Admin mode: these emails see the code on screen if SMTP fails."
+            )
+            st.code(
+                'CDC_SMTP_HOST = "smtp.sendgrid.net"\n'
+                'CDC_SMTP_USER = "apikey"\n'
+                'CDC_SMTP_PASS = "SG.your-api-key-here"\n'
+                'CDC_SMTP_FROM = "no-reply@your-domain.tn"\n'
+                'CDC_SMTP_PORT = "587"',
+                language="toml",
+            )
+            st.caption(
+                "Envoi reel par email (SendGrid recommande sur Streamlit Cloud)."
+                if is_fr_auth
+                else "Real email delivery (SendGrid recommended on Streamlit Cloud)."
+            )
+
         st.caption(
             f"Administrateur : {ADMIN_EMAIL} - support@cdc.tn"
-            if lang == "FR"
+            if is_fr_auth
             else f"Administrator: {ADMIN_EMAIL} - support@cdc.tn"
         )
         st.stop()
