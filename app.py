@@ -1311,6 +1311,154 @@ def _next_steps(
     return steps
 
 
+VAIR_TR_EN: dict[str, str] = {
+    # Axis names
+    "Innovation et Proposition de valeur": "Innovation and value proposition",
+    "Adéquation au marché ciblé": "Target market fit",
+    "Qualité et complémentarité de l'équipe": "Team quality and complementarity",
+    "Évaluation du PoC": "PoC readiness",
+    "Cohérence TRL, budget et remboursement": "TRL, budget and repayment alignment",
+    "Impact environnemental et social": "Environmental and social impact",
+    "Risques et crédibilité globale": "Risk profile and overall credibility",
+    # Axis guidance
+    (
+        "Mesure la nouveauté et l'originalité de la solution ainsi que sa pertinence "
+        "pour l'utilisateur final. Un score élevé correspond à une solution "
+        "différenciante, répondant à un problème réel, avec un potentiel d'adoption."
+    ): (
+        "Measures the novelty and originality of the solution and its relevance to "
+        "the end user. A high score reflects a differentiated solution that solves "
+        "a real problem with strong adoption potential."
+    ),
+    (
+        "Évalue la clarté et la crédibilité de la définition du marché, les preuves "
+        "d'intérêt ou de traction, ainsi que la stratégie d'accès au marché."
+    ): (
+        "Assesses how clearly and credibly the market is defined, the proof of "
+        "interest or traction, and the go-to-market strategy."
+    ),
+    (
+        "L'équipe est au cœur de la réussite. Mesure les compétences techniques et "
+        "business, la capacité à exécuter, ainsi que l'historique entrepreneurial."
+    ): (
+        "Team is the engine of success. Measures technical and business skills, "
+        "execution capability and entrepreneurial track record."
+    ),
+    (
+        "Évalue la crédibilité technique du projet et la capacité à réaliser un PoC : "
+        "clarté de la description, préparation TRL, ressources, vision d'industrialisation."
+    ): (
+        "Assesses the technical credibility of the project and its ability to deliver "
+        "a PoC: clarity of description, TRL readiness, resources, scale-up vision."
+    ),
+    (
+        "Vérifie si le budget demandé est adapté au TRL et au plan, la capacité de "
+        "gestion financière, et la crédibilité de la trajectoire de remboursement."
+    ): (
+        "Checks whether the requested budget fits the TRL and plan, the financial "
+        "management capacity, and the credibility of the repayment trajectory."
+    ),
+    (
+        "Mesure le potentiel d'impact environnemental, la durabilité, la capacité à "
+        "mesurer l'impact, ainsi que les aspects sociaux (genre, emplois qualifiés)."
+    ): (
+        "Measures environmental impact potential, sustainability, impact "
+        "measurement capability, and social aspects (gender, qualified jobs)."
+    ),
+    (
+        "Évalue la capacité du projet à anticiper ses risques et à proposer des "
+        "stratégies de mitigation crédibles, ainsi que la vision post-PoC."
+    ): (
+        "Assesses the project's ability to anticipate risks, propose credible "
+        "mitigation strategies, and the post-PoC vision."
+    ),
+    # Criterion names
+    "Originalité de la solution": "Originality of the solution",
+    "Pertinence de la valeur ajoutée pour l'utilisateur": "Relevance of value for the user",
+    "Clarté et pertinence de la définition du marché": "Clarity and relevance of the market definition",
+    "Validation et accessibilité du marché": "Market validation and accessibility",
+    "Crédibilité de la stratégie d'accès au marché": "Credibility of the go-to-market strategy",
+    "Partenaires stratégiques (optionnel)": "Strategic partners (optional)",
+    "Compétences et expérience": "Skills and experience",
+    "Capacité d'exécution et organisation": "Execution capacity and organisation",
+    "Historique entrepreneurial & PI": "Entrepreneurial track record and IP",
+    "Clarté de la description technique": "Clarity of the technical description",
+    "Préparation technique pour le PoC": "Technical readiness for the PoC",
+    "Ressources techniques mobilisées": "Technical resources mobilised",
+    "Vision de passage à l'échelle": "Scale-up vision",
+    "Maturité de l'innovation (TRL atteint)": "Innovation maturity (TRL reached)",
+    "Pertinence et réalisme du budget": "Relevance and realism of the budget",
+    "Capacité (ou plan) de gestion financière": "Financial management capacity (or plan)",
+    "Crédibilité de la trajectoire de revenus / remboursement": "Credibility of the revenue / repayment trajectory",
+    "Potentiel d'impact environnemental": "Environmental impact potential",
+    "Durabilité de la solution": "Solution sustainability",
+    "Mesure et suivi de l'impact": "Impact measurement and tracking",
+    "Prise en compte du genre": "Gender consideration",
+    "Création d'emplois": "Job creation",
+    "Identification et pertinence des risques": "Risk identification and relevance",
+    "Stratégies de mitigation": "Mitigation strategies",
+    "Vision de passage à l'échelle post-PoC": "Post-PoC scale-up vision",
+    # Angles (questions)
+    "Dans quelle mesure la solution se différencie-t-elle des pratiques/technologies existantes ?":
+        "How does the solution differ from existing practices or technologies?",
+    "La solution répond-elle à un vrai besoin et crée-t-elle une utilité claire pour le client final ?":
+        "Does the solution address a real need and create clear utility for the end customer?",
+    "Le projet a-t-il identifié un marché réel et pertinent avec des données crédibles ?":
+        "Has the project identified a real and relevant market with credible data?",
+    "La solution a-t-elle des preuves concrètes d'intérêt ou d'accès au marché ?":
+        "Does the solution have concrete proof of interest or market access?",
+    "La stratégie pour pénétrer le marché est-elle réaliste et cohérente ?":
+        "Is the market entry strategy realistic and coherent?",
+    "Le projet a-t-il embarqué des partenaires clés qui renforcent son accès marché ?":
+        "Has the project secured key partners that strengthen its market access?",
+    "Les fondateurs possèdent-ils les compétences techniques et/ou business nécessaires ?":
+        "Do the founders have the necessary technical and/or business skills?",
+    "Les fondateurs ont-ils une organisation claire et la capacité à exécuter le projet ?":
+        "Do the founders have a clear organisation and the capacity to execute?",
+    "L'historique (projets, brevets, accompagnements, prix) renforce-t-il la crédibilité ?":
+        "Does the track record (projects, patents, programmes, awards) reinforce credibility?",
+    "Le projet présente-t-il une description claire, compréhensible et crédible ?":
+        "Does the project present a clear, understandable and credible description?",
+    "Le projet montre-t-il une préparation crédible pour progresser (TRL 1-3) ?":
+        "Does the project show credible preparation to progress (TRL 1-3)?",
+    "Les moyens humains/techniques sont-ils adaptés pour réaliser le PoC ?":
+        "Are the human and technical resources adapted to deliver the PoC?",
+    "Le projet a-t-il anticipé l'industrialisation après le PoC ?":
+        "Has the project anticipated industrialisation after the PoC?",
+    "Le stade de développement est-il clair et cohérent avec la demande VAIR (PoC, TRL 1-3) ?":
+        "Is the development stage clear and consistent with the VAIR request (PoC, TRL 1-3)?",
+    "Le budget demandé est-il adapté au TRL et au plan de développement annoncé ?":
+        "Is the requested budget aligned with the TRL and the development plan?",
+    "L'équipe démontre-t-elle une capacité à gérer et reporter les fonds, même sans historique ?":
+        "Does the team show capacity to manage and report on funds, even without a track record?",
+    "Le modèle économique permet-il d'anticiper la capacité à rembourser l'avance ?":
+        "Does the business model allow anticipating repayment capacity?",
+    "Quel est le niveau d'impact environnemental positif attendu ?":
+        "What level of positive environmental impact is expected?",
+    "La solution est-elle pensée pour être durable à long terme ?":
+        "Is the solution designed to be sustainable in the long term?",
+    "L'entreprise mesure-t-elle son impact environnemental/social ?":
+        "Does the company measure its environmental and social impact?",
+    "Le projet prend-il en compte l'égalité femmes/hommes ?":
+        "Does the project address gender equality?",
+    "Le projet a-t-il un potentiel de création d'emplois verts/qualifiés ?":
+        "Does the project have potential to create green or qualified jobs?",
+    "Les risques principaux (techniques, marché, réglementaires, humains) sont-ils identifiés ?":
+        "Are the main risks (technical, market, regulatory, human) identified?",
+    "Le projet prévoit-il des moyens concrets pour gérer ces risques ?":
+        "Does the project plan concrete means to handle these risks?",
+    "L'entreprise a-t-elle anticipé son développement après VAIR ?":
+        "Has the company anticipated its development after VAIR?",
+}
+
+
+def _vair_t(text: str, lang: str) -> str:
+    """Translate a VAIR grid string to the active language; FR is the source."""
+    if lang == "FR" or not text:
+        return text
+    return VAIR_TR_EN.get(text, text)
+
+
 AXIS_WEIGHTS: dict[str, float] = {
     "Innovation et Proposition de valeur": 0.18,
     "Adéquation au marché ciblé": 0.18,
@@ -2327,8 +2475,30 @@ def committee_pdf(
     scorecard: dict[str, Any],
     rationales: dict[str, dict[str, Any]] | None = None,
     overall: dict[str, Any] | None = None,
+    lang: str = "FR",
 ) -> io.BytesIO:
     """Render the committee scorecard as a fully argued PDF report."""
+    is_fr = (lang == "FR")
+    L = {
+        "title": ("Rapport de comite - Grille VAIR" if is_fr
+                  else "Committee report - VAIR scoring grid"),
+        "rec": "Recommandation" if is_fr else "Recommendation",
+        "global": "Note globale ponderee" if is_fr else "Weighted global score",
+        "next_steps": "Prochaines etapes" if is_fr else "Next steps",
+        "axis": "Axe" if is_fr else "Axis",
+        "weight": "Ponderation" if is_fr else "Weight",
+        "note": "Note /5" if is_fr else "Score /5",
+        "criterion": "Critere" if is_fr else "Criterion",
+        "level": "Niveau atteint" if is_fr else "Level reached",
+        "strengths": "Points forts" if is_fr else "Strengths",
+        "gaps": "Points faibles" if is_fr else "Gaps",
+        "advice": "Conseil" if is_fr else "Advice",
+        "footer": ("Document genere automatiquement par CDC LAUNCHPAD. "
+                   "Decision finale soumise a la validation du comite."
+                   if is_fr else
+                   "Auto-generated by CDC LAUNCHPAD. Final decision subject to "
+                   "committee approval."),
+    }
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -2359,38 +2529,39 @@ def committee_pdf(
         except Exception:
             pass
 
-    elements.append(Paragraph("Rapport de comite - Grille VAIR", title))
+    elements.append(Paragraph(L["title"], title))
     elements.append(Paragraph(
         f"<b>{payload.get('name', '')}</b> | {payload.get('sector', '')} | "
         f"{payload.get('region', '')} | {dt.date.today():%d %b %Y}", body))
     if payload.get("evaluator"):
-        elements.append(Paragraph(f"Evaluateur : {payload['evaluator']}", small))
+        eval_lbl = "Evaluateur" if is_fr else "Evaluator"
+        elements.append(Paragraph(f"{eval_lbl}: {payload['evaluator']}", small))
     elements.append(Spacer(1, 6))
 
     if overall:
         rec_color = overall.get("color", NAVY)
         elements.append(Paragraph(
-            f"<font color='{rec_color}'><b>Recommandation : {overall['action']}</b></font>", h2))
+            f"<font color='{rec_color}'><b>{L['rec']}: {overall['action']}</b></font>", h2))
         elements.append(Paragraph(
-            f"Note globale ponderee : <b>{scorecard['global_note']}/5</b> "
+            f"{L['global']}: <b>{scorecard['global_note']}/5</b> "
             f"({scorecard['recommendation']})", body))
         for line in overall.get("rationale", []):
             elements.append(Paragraph(f"- {line}", body))
         elements.append(Spacer(1, 6))
         if overall.get("next_steps"):
-            elements.append(Paragraph("Prochaines etapes", h3))
+            elements.append(Paragraph(L["next_steps"], h3))
             for step in overall["next_steps"]:
                 elements.append(Paragraph(f"- {step}", body))
             elements.append(Spacer(1, 6))
     else:
         elements.append(Paragraph(
-            f"Note globale ponderee : <b>{scorecard['global_note']}/5</b> "
+            f"{L['global']}: <b>{scorecard['global_note']}/5</b> "
             f"({scorecard['recommendation']})", h2))
         elements.append(Spacer(1, 6))
 
-    rows = [["Axe", "Ponderation", "Note /5"]]
+    rows = [[L["axis"], L["weight"], L["note"]]]
     for ax in scorecard["axes"]:
-        rows.append([ax["axis"], f"{ax['weight']:.0%}", str(ax["note"])])
+        rows.append([_vair_t(ax["axis"], lang), f"{ax['weight']:.0%}", str(ax["note"])])
     summary_table = Table(rows, colWidths=[100 * mm, 30 * mm, 25 * mm])
     summary_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
@@ -2404,17 +2575,18 @@ def committee_pdf(
     elements.append(summary_table)
     elements.append(Spacer(1, 8))
 
+    note_word = "Note" if is_fr else "Score"
     for ax in scorecard["axes"]:
         block_elements: list[Any] = [
-            Paragraph(f"{ax['axis']} - Note {ax['note']}/5", h2),
+            Paragraph(f"{_vair_t(ax['axis'], lang)} - {note_word} {ax['note']}/5", h2),
         ]
         rat = (rationales or {}).get(ax["axis"]) or {}
         if rat.get("summary"):
             block_elements.append(Paragraph(rat["summary"], body))
-        crit_rows = [["Critere", "Note", "Niveau atteint"]]
+        crit_rows = [[L["criterion"], note_word, L["level"]]]
         for crit in ax["criteria"]:
             anchor = _anchor_for(ax["axis"], crit["name"], crit["score"])
-            crit_rows.append([crit["name"], f"{crit['score']}/5", anchor])
+            crit_rows.append([_vair_t(crit["name"], lang), f"{crit['score']}/5", anchor])
         crit_table = Table(crit_rows, colWidths=[55 * mm, 15 * mm, 90 * mm])
         crit_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(RED)),
@@ -2428,21 +2600,20 @@ def committee_pdf(
         ]))
         block_elements.append(crit_table)
         if rat.get("strengths"):
-            block_elements.append(Paragraph("<b>Points forts</b>", small))
+            block_elements.append(Paragraph(f"<b>{L['strengths']}</b>", small))
             for s in rat["strengths"]:
                 block_elements.append(Paragraph(f"- {s}", small))
         if rat.get("gaps"):
-            block_elements.append(Paragraph("<b>Points faibles</b>", small))
+            block_elements.append(Paragraph(f"<b>{L['gaps']}</b>", small))
             for g in rat["gaps"]:
                 block_elements.append(Paragraph(f"- {g}", small))
         if rat.get("advice"):
-            block_elements.append(Paragraph(f"<i>Conseil : {rat['advice']}</i>", small))
+            block_elements.append(Paragraph(f"<i>{L['advice']}: {rat['advice']}</i>", small))
         block_elements.append(Spacer(1, 6))
         elements.append(KeepTogether(block_elements))
 
     elements.append(Paragraph(
-        "<font size=8 color='#6B7280'>Document genere automatiquement par CDC LAUNCHPAD. "
-        "Decision finale soumise a la validation du comite.</font>", body))
+        f"<font size=8 color='#6B7280'>{L['footer']}</font>", body))
     doc.build(elements)
     buffer.seek(0)
     return buffer
@@ -2453,8 +2624,27 @@ def fmva_pdf(
     fmva: dict[str, Any],
     result: dict[str, Any],
     overall: dict[str, Any] | None = None,
+    lang: str = "FR",
 ) -> io.BytesIO:
-    """Render the FMVA valuation as an argued PDF report."""
+    """Render the valuation as an argued PDF report."""
+    is_fr = (lang == "FR")
+    L = {
+        "title": "Rapport de valorisation" if is_fr else "Valuation report",
+        "ensemble": "Ensemble (USD)" if is_fr else "Ensemble (USD)",
+        "spread": ("Fourchette des 5 methodes" if is_fr else "5-method range"),
+        "iqr_review": "REVUE REQUISE" if is_fr else "REVIEW REQUIRED",
+        "iqr_ok": "Convergent" if is_fr else "Convergent",
+        "rec": "Recommandation" if is_fr else "Recommendation",
+        "method_table_header": (("Methode", "USD", "TND", "Poids") if is_fr
+                                else ("Method", "USD", "TND", "Weight")),
+        "ensemble_row": "ENSEMBLE",
+        "details": "Detail par methode" if is_fr else "Method-by-method detail",
+        "footer": ("Document genere automatiquement par CDC LAUNCHPAD. "
+                   "Hypotheses a re-tester par le comite avant decision."
+                   if is_fr else
+                   "Auto-generated by CDC LAUNCHPAD. Assumptions to re-stress "
+                   "before any committee decision."),
+    }
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -2482,33 +2672,33 @@ def fmva_pdf(
             elements.append(Spacer(1, 6))
         except Exception:
             pass
-    elements.append(Paragraph("Rapport de valorisation FMVA", title))
+    elements.append(Paragraph(L["title"], title))
     elements.append(Paragraph(
         f"<b>{payload.get('name', '')}</b> | {payload.get('sector', '')} | "
         f"{dt.date.today():%d %b %Y}", body))
     elements.append(Spacer(1, 6))
 
     elements.append(Paragraph(
-        f"<b>Ensemble (USD)</b> : ${result['ensemble_usd']:,.0f} "
+        f"<b>{L['ensemble']}</b>: ${result['ensemble_usd']:,.0f} "
         f"(<b>{result['ensemble_tnd']:,.0f} TND</b>)", h2))
     elements.append(Paragraph(
-        f"Fourchette des 5 methodes : ${result['low_usd']:,.0f} - "
+        f"{L['spread']}: ${result['low_usd']:,.0f} - "
         f"${result['high_usd']:,.0f} | IQR {result['iqr_ratio']:.0%} | "
-        f"{'REVUE REQUISE' if result['review_flag'] else 'Convergent'}", body))
+        f"{L['iqr_review'] if result['review_flag'] else L['iqr_ok']}", body))
     if overall:
         elements.append(Paragraph(
-            f"<font color='{overall['color']}'><b>Recommandation : "
+            f"<font color='{overall['color']}'><b>{L['rec']}: "
             f"{overall['action']}</b></font>", h2))
         for line in overall.get("rationale", []):
             elements.append(Paragraph(f"- {line}", body))
         elements.append(Spacer(1, 6))
 
-    rows = [["Methode", "USD", "TND", "Poids"]]
+    rows = [list(L["method_table_header"])]
     for m, v in result["methods_usd"].items():
         rows.append([m, f"${v:,.0f}",
                      f"{result['methods_tnd'][m]:,.0f}",
                      f"{ENSEMBLE_WEIGHTS[m]:.0%}"])
-    rows.append(["ENSEMBLE", f"${result['ensemble_usd']:,.0f}",
+    rows.append([L["ensemble_row"], f"${result['ensemble_usd']:,.0f}",
                  f"{result['ensemble_tnd']:,.0f}", "100%"])
     table = Table(rows, colWidths=[55 * mm, 35 * mm, 35 * mm, 22 * mm])
     table.setStyle(TableStyle([
@@ -2526,7 +2716,7 @@ def fmva_pdf(
     elements.append(table)
     elements.append(Spacer(1, 8))
 
-    elements.append(Paragraph("Detail par methode", h2))
+    elements.append(Paragraph(L["details"], h2))
     for m, v in result["methods_usd"].items():
         elements.append(Paragraph(f"<b>{m}</b>", body))
         elements.append(Paragraph(method_rationale(m, v, fmva, result), body))
@@ -2534,8 +2724,7 @@ def fmva_pdf(
 
     elements.append(Spacer(1, 4))
     elements.append(Paragraph(
-        "<font size=8 color='#6B7280'>Document genere automatiquement par CDC LAUNCHPAD. "
-        "Hypotheses a re-tester par le comite avant decision.</font>", body))
+        f"<font size=8 color='#6B7280'>{L['footer']}</font>", body))
     doc.build(elements)
     buffer.seek(0)
     return buffer
@@ -2746,6 +2935,37 @@ def compute_financial_ratios(data: dict[str, float]) -> dict[str, dict[str, Any]
     }
 
 
+RATIO_NAMES_EN: dict[str, str] = {
+    "Marge brute": "Gross margin",
+    "Marge EBITDA": "EBITDA margin",
+    "Marge nette": "Net margin",
+    "ROA": "ROA",
+    "ROE": "ROE",
+    "Current ratio": "Current ratio",
+    "Quick ratio": "Quick ratio",
+    "Cash ratio": "Cash ratio",
+    "Dette / Fonds propres": "Debt / Equity",
+    "Dette / Actif total": "Debt / Total assets",
+    "Couverture interets": "Interest coverage",
+    "Rotation actifs": "Asset turnover",
+}
+
+RATIO_EXPLANATIONS_EN: dict[str, str] = {
+    "Marge brute": "How much of every dinar of revenue becomes margin before operating costs.",
+    "Marge EBITDA": "Operating profitability after operating expenses, excluding financial and tax items.",
+    "Marge nette": "Net income to revenue - final profitability after tax.",
+    "ROA": "Return on assets - how efficiently the balance sheet generates profit.",
+    "ROE": "Return on equity - financial leverage and shareholder profitability.",
+    "Current ratio": "General liquidity - current assets coverage of short-term debt.",
+    "Quick ratio": "Restrictive liquidity (excluding inventory) - speed of paying short-term liabilities.",
+    "Cash ratio": "Strict liquidity - cash / short-term liabilities.",
+    "Dette / Fonds propres": "Financial leverage - financial debt relative to equity.",
+    "Dette / Actif total": "Total debt weight on the balance sheet.",
+    "Couverture interets": "EBIT / interest expense - capacity to service debt through operating profit.",
+    "Rotation actifs": "Revenue / total assets - intensity of balance-sheet utilisation.",
+}
+
+
 def _format_ratio(value: float | None, fmt: str) -> str:
     if value is None or pd.isna(value):
         return "n/d"
@@ -2859,8 +3079,33 @@ def financial_memo(data: dict[str, float], ratios: dict[str, dict[str, Any]]) ->
 
 
 def financial_pdf(payload: dict[str, Any], data: dict[str, float],
-                  ratios: dict[str, dict[str, Any]], memo: dict[str, Any]) -> io.BytesIO:
+                  ratios: dict[str, dict[str, Any]], memo: dict[str, Any],
+                  lang: str = "FR") -> io.BytesIO:
     """Generate a structured investment memo PDF."""
+    is_fr = (lang == "FR")
+    L = {
+        "title": ("Memo d'investissement - analyse financiere" if is_fr
+                  else "Investment memo - financial analysis"),
+        "rec": "Recommandation" if is_fr else "Recommendation",
+        "health": ("Score de sante financiere" if is_fr else "Financial health score"),
+        "thesis": "These" if is_fr else "Thesis",
+        "ratio_table": "Tableau des ratios" if is_fr else "Ratio table",
+        "ratio_h": (("Ratio", "Valeur", "Drapeau", "Lecture") if is_fr
+                    else ("Ratio", "Value", "Flag", "Reading")),
+        "strengths": "Points forts" if is_fr else "Strengths",
+        "watch": "Points de vigilance" if is_fr else "Watch points",
+        "risks": "Risques materiels" if is_fr else "Material risks",
+        "next_steps": "Prochaines etapes" if is_fr else "Next steps",
+        "footer": ("Analyse generee automatiquement a partir des etats financiers "
+                   "transmis. Document de support a la decision d'investissement, "
+                   "soumis a validation par le comite."
+                   if is_fr else
+                   "Auto-generated analysis from the financial statements provided. "
+                   "Investment-decision support document, subject to committee approval."),
+    }
+    flag_labels = ({"ok": "Vert", "warn": "Orange", "bad": "Rouge", "na": "n/d"}
+                   if is_fr else
+                   {"ok": "Green", "warn": "Amber", "bad": "Red", "na": "n/a"})
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -2888,33 +3133,35 @@ def financial_pdf(payload: dict[str, Any], data: dict[str, float],
             elements.append(Spacer(1, 6))
         except Exception:
             pass
-    elements.append(Paragraph("Memo d'investissement - analyse financiere", title))
+    elements.append(Paragraph(L["title"], title))
     elements.append(Paragraph(
         f"<b>{payload.get('name', '')}</b> | {payload.get('sector', '')} | "
         f"{dt.date.today():%d %b %Y}", body))
     elements.append(Spacer(1, 8))
     elements.append(Paragraph(
-        f"<font color='{memo['color']}'><b>Recommandation : {memo['action']}</b></font>", h2))
+        f"<font color='{memo['color']}'><b>{L['rec']}: {memo['action']}</b></font>", h2))
     elements.append(Paragraph(
-        f"Score de sante financiere : <b>{memo['health_score']*100:.0f}/100</b>. {memo['rationale']}",
+        f"{L['health']}: <b>{memo['health_score']*100:.0f}/100</b>. {memo['rationale']}",
         body))
     elements.append(Spacer(1, 6))
 
     if memo["thesis"]:
-        elements.append(Paragraph("These", h2))
+        elements.append(Paragraph(L["thesis"], h2))
         for t in memo["thesis"]:
             elements.append(Paragraph(f"- {t}", body))
         elements.append(Spacer(1, 6))
 
-    elements.append(Paragraph("Tableau des ratios", h2))
-    rows = [["Ratio", "Valeur", "Drapeau", "Lecture"]]
-    flag_label = {"ok": "Vert", "warn": "Orange", "bad": "Rouge", "na": "n/d"}
+    elements.append(Paragraph(L["ratio_table"], h2))
+    rows = [list(L["ratio_h"])]
     for name, r in ratios.items():
+        display_name = name if is_fr else RATIO_NAMES_EN.get(name, name)
+        display_expl = (r["explanation"] if is_fr
+                        else RATIO_EXPLANATIONS_EN.get(name, r["explanation"]))
         rows.append([
-            name,
+            display_name,
             _format_ratio(r["value"], r["fmt"]),
-            flag_label[r["flag"]],
-            r["explanation"],
+            flag_labels[r["flag"]],
+            display_expl,
         ])
     table = Table(rows, colWidths=[40 * mm, 25 * mm, 22 * mm, 80 * mm])
     table.setStyle(TableStyle([
@@ -2930,30 +3177,28 @@ def financial_pdf(payload: dict[str, Any], data: dict[str, float],
     elements.append(Spacer(1, 8))
 
     if memo["strengths"]:
-        elements.append(Paragraph("Points forts", h2))
+        elements.append(Paragraph(L["strengths"], h2))
         for s in memo["strengths"]:
             elements.append(Paragraph(f"- {s}", body))
         elements.append(Spacer(1, 4))
     if memo["watch"]:
-        elements.append(Paragraph("Points de vigilance", h2))
+        elements.append(Paragraph(L["watch"], h2))
         for w in memo["watch"]:
             elements.append(Paragraph(f"- {w}", body))
         elements.append(Spacer(1, 4))
     if memo["risks"]:
-        elements.append(Paragraph("Risques materiels", h2))
+        elements.append(Paragraph(L["risks"], h2))
         for r in memo["risks"]:
             elements.append(Paragraph(f"- {r}", body))
         elements.append(Spacer(1, 4))
 
-    elements.append(Paragraph("Prochaines etapes", h2))
+    elements.append(Paragraph(L["next_steps"], h2))
     for step in memo["next_steps"]:
         elements.append(Paragraph(f"- {step}", body))
 
     elements.append(Spacer(1, 6))
     elements.append(Paragraph(
-        "<font size=8 color='#6B7280'>Analyse generee automatiquement a partir des etats "
-        "financiers transmis. Document de support a la decision d'investissement, soumis a "
-        "validation par le comite.</font>", body))
+        f"<font size=8 color='#6B7280'>{L['footer']}</font>", body))
     doc.build(elements)
     buffer.seek(0)
     return buffer
@@ -4142,7 +4387,25 @@ def _inject_css() -> None:
             70%  {{ box-shadow: 0 0 0 10px rgba(34,122,74,0); }}
             100% {{ box-shadow: 0 0 0 0 rgba(34,122,74,0); }}
         }}
-        @media (max-width: 720px) {{ .cdc-status-row {{ justify-content: center; }} }}
+        @media (max-width: 720px) {{
+            .cdc-status-row {{ justify-content: center; }}
+            .cdc-hero {{ padding: 1rem 1.05rem; border-radius: 16px; }}
+            .cdc-title-anim {{ font-size: 1.85rem; }}
+            .cdc-tag-line {{ font-size: 0.93rem; }}
+            .cdc-quote .text {{ font-size: 0.95rem; }}
+            .cdc-quote .avatar {{ width: 52px; height: 52px; }}
+            .kpi-strip {{ grid-template-columns: repeat(2, 1fr); }}
+            .prog-grid, .news-grid, .alaune-grid, .spot-grid {{ grid-template-columns: 1fr; }}
+            .block-container {{ padding-left: 0.75rem; padding-right: 0.75rem; }}
+        }}
+        @media (max-width: 480px) {{
+            .cdc-title-anim {{ font-size: 1.55rem; }}
+            .kpi-strip {{ grid-template-columns: 1fr; }}
+            .cdc-hero-logo {{ min-height: 130px; }}
+            .cdc-quote {{ gap: 0.6rem; }}
+            .rec-banner {{ flex-direction: column; align-items: flex-start; }}
+            .prog-meta {{ grid-template-columns: 1fr; }}
+        }}
         /* Animated title */
         .cdc-title-anim {{
             font-size: clamp(2rem, 4.2vw, 3.4rem);
@@ -4208,8 +4471,38 @@ def _inject_css() -> None:
             font-style: normal; font-weight: 800; letter-spacing: 0.3px;
         }}
         .cdc-quote-wrap {{
-            margin-top: 0.9rem; position: relative; min-height: 92px;
+            margin-top: 0.9rem; position: relative; min-height: 110px;
             border-top: 1px dashed #EEF0F6; padding-top: 1.0rem;
+            padding-bottom: 1.0rem;
+        }}
+        .cdc-quote-wrap:hover .cdc-quote,
+        .cdc-quote-wrap:hover .cdc-quote-dot {{
+            animation-play-state: paused;
+        }}
+        .cdc-quote-dots {{
+            position: absolute; bottom: 0.1rem; left: 0;
+            display:flex; align-items:center; gap: 0.3rem;
+        }}
+        .cdc-quote-dot {{
+            width: 18px; height: 4px; border-radius: 999px;
+            background: #E5E7EB; position: relative; overflow: hidden;
+        }}
+        .cdc-quote-dot::after {{
+            content:''; position:absolute; inset: 0;
+            background: linear-gradient(90deg, {NAVY}, {RED});
+            transform-origin: left center; transform: scaleX(0);
+            animation: cdcQuoteDotFill 30s infinite linear;
+        }}
+        .cdc-quote-dot:nth-child(1)::after {{ animation-delay: 0s; }}
+        .cdc-quote-dot:nth-child(2)::after {{ animation-delay: 6s; }}
+        .cdc-quote-dot:nth-child(3)::after {{ animation-delay: 12s; }}
+        .cdc-quote-dot:nth-child(4)::after {{ animation-delay: 18s; }}
+        .cdc-quote-dot:nth-child(5)::after {{ animation-delay: 24s; }}
+        @keyframes cdcQuoteDotFill {{
+            0%, 20%, 100% {{ transform: scaleX(0); }}
+            0.5%, 19.5% {{ transform: scaleX(0); }}
+            2% {{ transform: scaleX(0.05); }}
+            18% {{ transform: scaleX(1); }}
         }}
         .cdc-hero-row {{
             position: relative; z-index: 2;
@@ -4786,7 +5079,15 @@ def _header(lang: str, status_pill: str = "") -> None:
                     <h1 class="cdc-title-anim">{cdc_letters}</h1>
                     <p class="cdc-tag-line">{tagline}</p>
                     <div class="badges">{badge_html}</div>
-                    <div class="cdc-quote-wrap">{quote_html}</div>
+                    <div class="cdc-quote-wrap">{quote_html}
+                        <div class="cdc-quote-dots">
+                            <div class="cdc-quote-dot"></div>
+                            <div class="cdc-quote-dot"></div>
+                            <div class="cdc-quote-dot"></div>
+                            <div class="cdc-quote-dot"></div>
+                            <div class="cdc-quote-dot"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -5542,16 +5843,21 @@ def run_app() -> None:
         meta["evaluator"] = m3.text_input("Membre du comité", meta.get("evaluator", ""), key="grid_eval")
 
         scores_state = session["scoring_inputs"]
+        fields_label = "Fields" if not is_fr_cm else "Champs"
+        score_label = "Score (0-5)" if not is_fr_cm else "Note (0-5)"
         for block in SCORING_GRID:
-            with st.expander(f"**{block['axis']}**", expanded=False):
-                st.caption(block["guidance"])
+            axis_disp = _vair_t(block["axis"], lang)
+            with st.expander(f"**{axis_disp}**", expanded=False):
+                st.caption(_vair_t(block["guidance"], lang))
                 axis_scores = scores_state.setdefault(block["axis"], {})
                 for crit in block["criteria"]:
-                    st.markdown(f"**{crit['name']}**")
-                    st.caption(f"_{crit['angle']}_ — _Champs : {crit['fields']}_")
+                    st.markdown(f"**{_vair_t(crit['name'], lang)}**")
+                    st.caption(
+                        f"_{_vair_t(crit['angle'], lang)}_ - _{fields_label}: {crit['fields']}_"
+                    )
                     current = int(axis_scores.get(crit["name"], 0))
                     new = st.slider(
-                        "Note (0-5)",
+                        score_label,
                         min_value=0, max_value=5, value=current, step=1,
                         format="%d",
                         key=f"score_{block['axis']}_{crit['name']}",
@@ -5629,9 +5935,9 @@ def run_app() -> None:
             )
         with d2:
             st.download_button(
-                "Rapport comite (PDF)",
-                committee_pdf(grid_payload, scorecard, rationales, overall),
-                file_name=f"Rapport_comite_{(meta.get('name') or 'startup').replace(' ', '_')}.pdf",
+                "Committee report (PDF)" if not is_fr_cm else "Rapport comite (PDF)",
+                committee_pdf(grid_payload, scorecard, rationales, overall, lang=lang),
+                file_name=f"Committee_{(meta.get('name') or 'startup').replace(' ', '_')}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 key="dl_pdf_committee_tab",
@@ -5819,9 +6125,9 @@ def run_app() -> None:
             )
         with d2:
             st.download_button(
-                "Rapport FMVA (PDF)",
-                fmva_pdf(last, fmva, result, overall),
-                file_name=f"FMVA_{(last.get('name') or 'startup').replace(' ', '_')}.pdf",
+                "Valuation report (PDF)" if not is_fr_va else "Rapport valorisation (PDF)",
+                fmva_pdf(last, fmva, result, overall, lang=lang),
+                file_name=f"Valuation_{(last.get('name') or 'startup').replace(' ', '_')}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 key="dl_pdf_fmva_tab",
@@ -5900,12 +6206,18 @@ def run_app() -> None:
                     f"{memo['health_score']*100:.0f}/100",
                 )
 
+                flag_fr = {"ok": "Vert", "warn": "Orange", "bad": "Rouge", "na": "n/d"}
+                flag_en = {"ok": "Green", "warn": "Amber", "bad": "Red", "na": "n/a"}
+                flag_lbl = flag_fr if is_fr else flag_en
+                ratio_cols = (("Ratio", "Valeur", "Drapeau", "Lecture") if is_fr
+                              else ("Ratio", "Value", "Flag", "Reading"))
                 ratio_df = pd.DataFrame([
                     {
-                        "Ratio": name,
-                        "Valeur": _format_ratio(r["value"], r["fmt"]),
-                        "Drapeau": {"ok": "Vert", "warn": "Orange", "bad": "Rouge", "na": "n/d"}[r["flag"]],
-                        "Lecture": r["explanation"],
+                        ratio_cols[0]: (name if is_fr else RATIO_NAMES_EN.get(name, name)),
+                        ratio_cols[1]: _format_ratio(r["value"], r["fmt"]),
+                        ratio_cols[2]: flag_lbl[r["flag"]],
+                        ratio_cols[3]: (r["explanation"] if is_fr
+                                        else RATIO_EXPLANATIONS_EN.get(name, r["explanation"])),
                     }
                     for name, r in ratios.items()
                 ])
@@ -5931,7 +6243,7 @@ def run_app() -> None:
 
                 pdf_buf = financial_pdf(
                     {"name": startup_name, "sector": last.get("sector", "")},
-                    data, ratios, memo,
+                    data, ratios, memo, lang=lang,
                 )
                 st.download_button(
                     "Telecharger le memo PDF" if is_fr else "Download memo PDF",
@@ -6094,14 +6406,14 @@ def run_app() -> None:
             r2.button("Assessment - Excel", disabled=True, use_container_width=True, key="rep_a_xls_disabled")
         if last and scorecard:
             r3.download_button(
-                "Comite - PDF",
+                "Committee - PDF" if not is_fr_r else "Comite - PDF",
                 committee_pdf(
                     {**(session.get("scoring_meta") or {}),
                      "name": last.get("name"), "sector": last.get("sector"),
                      "region": last.get("region")},
-                    scorecard, rationales, overall,
+                    scorecard, rationales, overall, lang=lang,
                 ),
-                file_name=f"Rapport_comite_{slug}.pdf",
+                file_name=f"Committee_{slug}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 key="rep_comm_pdf",
@@ -6129,9 +6441,9 @@ def run_app() -> None:
             r4.button("Comite - Grille Excel", disabled=True, use_container_width=True, key="rep_c_xls_disabled")
         if last and fmva and fmva_result:
             r5.download_button(
-                "FMVA - PDF",
-                fmva_pdf(last, fmva, fmva_result, overall),
-                file_name=f"FMVA_{slug}.pdf",
+                "Valuation - PDF" if not is_fr_r else "Valorisation - PDF",
+                fmva_pdf(last, fmva, fmva_result, overall, lang=lang),
+                file_name=f"Valuation_{slug}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 key="rep_fmva_pdf",
