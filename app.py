@@ -3572,6 +3572,127 @@ CDC_PROGRAMS: list[dict[str, Any]] = [
 ]
 
 
+def _svg_portrait(seed_text: str, c1: str, c2: str, size: int = 84) -> str:
+    """Generate a unique stylized abstract portrait - never identical twice."""
+    import hashlib
+
+    digest = hashlib.md5(seed_text.encode("utf-8")).hexdigest()
+    seed_int = int(digest[:8], 16)
+    rng = [int(digest[i:i+2], 16) for i in range(0, 32, 2)]
+
+    def r(i: int, lo: int, hi: int) -> int:
+        return lo + (rng[i % len(rng)] % max(1, (hi - lo + 1)))
+
+    sk_palette = ["#F4D5B3", "#E2B07B", "#C68B5C", "#8E5A3B", "#5A3422"]
+    skin = sk_palette[seed_int % len(sk_palette)]
+    hair_palette = ["#1F2937", "#3B2A1A", "#7B341E", "#111827", "#4B2E1B"]
+    hair = hair_palette[(seed_int >> 4) % len(hair_palette)]
+    hair_style = seed_int % 4
+    accent_palette = [NAVY, RED, GOLD, TEAL, VIOLET, BLUE]
+    accent = accent_palette[(seed_int >> 8) % len(accent_palette)]
+    has_glasses = (rng[3] % 2) == 0
+    smile_curve = r(5, 4, 9)
+
+    cx = size // 2
+    cy = size // 2
+    head_r = int(size * 0.30)
+    head_y = cy - 2
+
+    # Background gradient circle
+    parts: list[str] = [
+        f"<defs>"
+        f"<linearGradient id='b{seed_int}' x1='0%' y1='0%' x2='100%' y2='100%'>"
+        f"<stop offset='0%' stop-color='{c1}'/>"
+        f"<stop offset='100%' stop-color='{c2}'/>"
+        f"</linearGradient>"
+        f"</defs>"
+        f"<rect width='{size}' height='{size}' fill='url(#b{seed_int})' rx='{size//2}' ry='{size//2}'/>"
+    ]
+    # Geometric decoration in background
+    parts.append(
+        f"<circle cx='{r(7,8,size-8)}' cy='{r(8,8,size-8)}' r='{r(9,3,9)}' "
+        f"fill='white' fill-opacity='0.18'/>"
+    )
+    # Shoulders / collar
+    shoulder_y = cy + int(size * 0.34)
+    parts.append(
+        f"<path d='M{cx - int(size*0.42)},{shoulder_y + int(size*0.15)} "
+        f"Q{cx},{shoulder_y - int(size*0.05)} {cx + int(size*0.42)},{shoulder_y + int(size*0.15)} "
+        f"L{cx + int(size*0.42)},{size} L{cx - int(size*0.42)},{size} Z' "
+        f"fill='{accent}' opacity='0.92'/>"
+    )
+    # Neck
+    parts.append(
+        f"<rect x='{cx-6}' y='{cy + int(size*0.18)}' width='12' height='{int(size*0.12)}' "
+        f"fill='{skin}'/>"
+    )
+    # Head
+    parts.append(
+        f"<circle cx='{cx}' cy='{head_y}' r='{head_r}' fill='{skin}'/>"
+    )
+    # Hair styles
+    if hair_style == 0:
+        # Short cap
+        parts.append(
+            f"<path d='M{cx-head_r},{head_y} "
+            f"Q{cx},{head_y - head_r - 4} {cx+head_r},{head_y} "
+            f"L{cx+head_r-3},{head_y - 1} "
+            f"Q{cx},{head_y - head_r + 2} {cx-head_r+3},{head_y - 1} Z' fill='{hair}'/>"
+        )
+    elif hair_style == 1:
+        # Long swept
+        parts.append(
+            f"<path d='M{cx-head_r-2},{head_y+4} "
+            f"Q{cx-head_r},{head_y - head_r - 3} {cx+5},{head_y - head_r - 1} "
+            f"Q{cx+head_r-2},{head_y - 5} {cx+head_r+4},{head_y + 16} "
+            f"L{cx+head_r-2},{head_y + 4} "
+            f"Q{cx},{head_y - head_r + 4} {cx-head_r+3},{head_y - 1} Z' fill='{hair}'/>"
+        )
+    elif hair_style == 2:
+        # Curly bun
+        for i in range(7):
+            bx = cx - head_r + (i * head_r // 3) + r(10+i, -2, 2)
+            by = head_y - head_r + r(12+i, -2, 4)
+            br = r(14+i, 4, 7)
+            parts.append(f"<circle cx='{bx}' cy='{by}' r='{br}' fill='{hair}'/>")
+    else:
+        # Buzz
+        parts.append(
+            f"<path d='M{cx-head_r+2},{head_y-2} "
+            f"Q{cx},{head_y - head_r + 4} {cx+head_r-2},{head_y-2} "
+            f"L{cx+head_r-4},{head_y+3} "
+            f"Q{cx},{head_y - head_r + 8} {cx-head_r+4},{head_y+3} Z' "
+            f"fill='{hair}' opacity='0.92'/>"
+        )
+    # Eyes
+    eye_y = head_y - 2
+    eye_dx = max(5, head_r // 3)
+    parts.append(
+        f"<circle cx='{cx-eye_dx}' cy='{eye_y}' r='1.7' fill='#1F2937'/>"
+        f"<circle cx='{cx+eye_dx}' cy='{eye_y}' r='1.7' fill='#1F2937'/>"
+    )
+    if has_glasses:
+        parts.append(
+            f"<circle cx='{cx-eye_dx}' cy='{eye_y}' r='4' fill='none' stroke='#1F2937' stroke-width='1.2'/>"
+            f"<circle cx='{cx+eye_dx}' cy='{eye_y}' r='4' fill='none' stroke='#1F2937' stroke-width='1.2'/>"
+            f"<line x1='{cx-eye_dx+4}' y1='{eye_y}' x2='{cx+eye_dx-4}' y2='{eye_y}' "
+            f"stroke='#1F2937' stroke-width='1.2'/>"
+        )
+    # Smile
+    parts.append(
+        f"<path d='M{cx-smile_curve},{head_y+6} Q{cx},{head_y+6+smile_curve//2} "
+        f"{cx+smile_curve},{head_y+6}' "
+        f"stroke='#1F2937' stroke-width='1.3' fill='none' stroke-linecap='round'/>"
+    )
+
+    return (
+        f"<svg viewBox='0 0 {size} {size}' xmlns='http://www.w3.org/2000/svg' "
+        f"style='width:100%;height:100%;display:block;border-radius:{size//2}px'>"
+        f"{''.join(parts)}"
+        f"</svg>"
+    )
+
+
 def _svg_cover(seed_text: str, c1: str, c2: str, width: int = 600, height: int = 220) -> str:
     """Generate a unique abstract SVG cover - never the same pattern twice."""
     import hashlib
@@ -3989,15 +4110,24 @@ def _inject_css() -> None:
             content:''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px;
             background: linear-gradient(180deg, {NAVY} 0%, {RED} 100%);
         }}
+        .cdc-status-row {{
+            position: relative; z-index: 3;
+            display: flex; justify-content: flex-end;
+            margin: 0 0 0.65rem 0; flex-wrap: wrap; gap: 0.4rem;
+        }}
         .cdc-status {{
-            position: absolute; top: 14px; right: 18px; z-index: 3;
-            display: inline-flex; align-items: center; gap: 0.5rem;
-            background: rgba(255,255,255,0.95);
+            display: inline-flex; align-items: center; gap: 0.45rem;
+            background: linear-gradient(135deg, #FFFFFF, #F8F9FC);
             border: 1px solid #EFF1F6;
             color: {INK};
-            padding: 0.32rem 0.7rem; border-radius: 999px;
+            padding: 0.34rem 0.75rem; border-radius: 999px;
             font-size: 0.74rem; font-weight: 700; letter-spacing: 0.2px;
             box-shadow: 0 10px 26px -16px rgba(39,46,95,0.35);
+            max-width: 100%;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }}
+        @media (max-width: 720px) {{
+            .cdc-status {{ font-size: 0.7rem; padding: 0.28rem 0.6rem; }}
         }}
         .cdc-status .dot {{
             width: 8px; height: 8px; border-radius: 50%;
@@ -4012,7 +4142,7 @@ def _inject_css() -> None:
             70%  {{ box-shadow: 0 0 0 10px rgba(34,122,74,0); }}
             100% {{ box-shadow: 0 0 0 0 rgba(34,122,74,0); }}
         }}
-        @media (max-width: 720px) {{ .cdc-status {{ display: none; }} }}
+        @media (max-width: 720px) {{ .cdc-status-row {{ justify-content: center; }} }}
         /* Animated title */
         .cdc-title-anim {{
             font-size: clamp(2rem, 4.2vw, 3.4rem);
@@ -4066,15 +4196,20 @@ def _inject_css() -> None:
             20%, 100% {{ opacity: 0; transform: translateY(-6px); }}
         }}
         .cdc-quote .avatar {{
-            width: 44px; height: 44px; border-radius: 50%;
-            display: inline-flex; align-items: center; justify-content: center;
-            font-weight: 800; color: white; font-size: 0.95rem;
-            box-shadow: 0 8px 22px -10px rgba(39,46,95,0.55);
-            flex-shrink: 0;
+            width: 64px; height: 64px; border-radius: 50%;
+            overflow: hidden; flex-shrink: 0;
+            box-shadow: 0 10px 26px -12px rgba(39,46,95,0.55),
+                        0 0 0 3px rgba(255,255,255,0.95);
         }}
-        .cdc-quote .text {{ color: {INK}; font-size: 0.96rem; line-height: 1.35; font-style: italic; }}
+        .cdc-quote .avatar svg {{ width: 100%; height: 100%; }}
+        .cdc-quote .text {{ color: {INK}; font-size: 1.05rem; line-height: 1.4; font-style: italic; }}
         .cdc-quote .who {{
-            color: {MUTED}; font-size: 0.78rem; margin-top: 0.15rem; font-style: normal; font-weight: 600;
+            color: {RED}; font-size: 0.78rem; margin-top: 0.2rem;
+            font-style: normal; font-weight: 800; letter-spacing: 0.3px;
+        }}
+        .cdc-quote-wrap {{
+            margin-top: 0.9rem; position: relative; min-height: 92px;
+            border-top: 1px dashed #EEF0F6; padding-top: 1.0rem;
         }}
         .cdc-hero-row {{
             position: relative; z-index: 2;
@@ -4625,11 +4760,11 @@ def _header(lang: str, status_pill: str = "") -> None:
                       (NAVY, RED), (RED, NAVY), (NAVY, "#1B2150")]
     quote_html = "".join(
         f"<div class='cdc-quote'>"
-        f"  <div class='avatar' style='background:linear-gradient(135deg,{c1},{c2})'>{initials}</div>"
+        f"  <div class='avatar'>{_svg_portrait(text + who, c1, c2, 84)}</div>"
         f"  <div><div class='text'>\"{text}\"</div>"
         f"  <div class='who'>{who}</div></div>"
         f"</div>"
-        for (text, who, initials), (c1, c2) in zip(quotes, avatar_palette)
+        for (text, who, _initials), (c1, c2) in zip(quotes, avatar_palette)
     )
     tagline = (
         "From funding to breakout - submit deliverables, prove traction, "
@@ -4644,7 +4779,7 @@ def _header(lang: str, status_pill: str = "") -> None:
     st.markdown(
         f"""
         <div class="cdc-hero">
-            {status_pill}
+            <div class="cdc-status-row">{status_pill}</div>
             <div class="cdc-hero-row">
                 <div class="cdc-hero-logo">{media_html}</div>
                 <div>
@@ -4987,18 +5122,32 @@ def run_app() -> None:
                         else f"Pre-filled with {b['name']}. Open the Assessment tab to run it."
                     )
 
+        is_fr_eco = (lang == "FR")
+        sector_pill = "Carte sectorielle" if is_fr_eco else "Sector map"
+        sector_title = (
+            "Cartographie des secteurs et dynamique annuelle"
+            if is_fr_eco
+            else "Sector landscape and yearly cadence"
+        )
         st.markdown(
-            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#C9A227,#8C7415)'>Carte sectorielle</span>"
-            "<h3>Cartographie des secteurs et dynamique annuelle</h3></div>",
+            f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#C9A227,#8C7415)'>{sector_pill}</span>"
+            f"<h3>{sector_title}</h3></div>",
             unsafe_allow_html=True,
         )
         c_left, c_right = st.columns([1.4, 1])
         with c_left:
             top = df["sector"].value_counts().head(14)
-            st.plotly_chart(plotly_treemap(top, "Top secteurs (taille = nombre de startups)"),
+            tree_title = (
+                "Top secteurs (taille = nombre de startups)"
+                if is_fr_eco
+                else "Top sectors (size = number of startups)"
+            )
+            st.plotly_chart(plotly_treemap(top, tree_title),
                             use_container_width=True, config={"displayModeBar": False})
         with c_right:
-            st.markdown("**Dynamique annuelle**")
+            st.markdown(
+                "**Dynamique annuelle**" if is_fr_eco else "**Yearly cadence**"
+            )
             years = pd.to_numeric(df["founding_year"], errors="coerce").dropna().astype(int)
             yearly = years.value_counts().sort_index().tail(15)
             st.line_chart(yearly, color=NAVY, height=320)
@@ -5007,9 +5156,16 @@ def run_app() -> None:
         _render_programs_tab(lang)
 
     with tabs[2]:
+        is_fr_p = (lang == "FR")
+        pf_pill = "Portefeuille" if is_fr_p else "Portfolio"
+        pf_title = (
+            "Cartographie interactive du portefeuille"
+            if is_fr_p
+            else "Interactive portfolio map"
+        )
         st.markdown(
-            "<div class='section-h'><span class='pill'>Portefeuille</span>"
-            "<h3>Cartographie interactive du portefeuille</h3></div>",
+            f"<div class='section-h'><span class='pill'>{pf_pill}</span>"
+            f"<h3>{pf_title}</h3></div>",
             unsafe_allow_html=True,
         )
         kpi_values = compute_impact_kpis(df)
@@ -5029,16 +5185,19 @@ def run_app() -> None:
 
         f1, f2, f3 = st.columns([1.2, 1, 1])
         sector_filter = f1.multiselect(
-            "Filtrer par secteur",
+            "Filtrer par secteur" if is_fr_p else "Filter by sector",
             sorted(df["sector"].dropna().astype(str).unique()),
-            placeholder="Tous secteurs",
+            placeholder="Tous secteurs" if is_fr_p else "All sectors",
         )
         region_filter = f2.multiselect(
-            "Region",
+            "Region" if is_fr_p else "Region",
             sorted(df.get("Region", pd.Series([], dtype=str)).dropna().astype(str).unique()) if "Region" in df.columns else [],
-            placeholder="Toutes regions",
+            placeholder="Toutes regions" if is_fr_p else "All regions",
         )
-        only_funded = f3.toggle("Financees uniquement", value=False)
+        only_funded = f3.toggle(
+            "Financees uniquement" if is_fr_p else "Funded only",
+            value=False,
+        )
 
         filtered = segmented_df.copy()
         if sector_filter and "Secteur" in filtered.columns:
@@ -5093,7 +5252,10 @@ def run_app() -> None:
 
         c_left, c_right = st.columns([1.4, 1])
         with c_left:
-            st.markdown("**Repartition sectorielle (filtree)**")
+            st.markdown(
+                "**Repartition sectorielle (filtree)**"
+                if is_fr_p else "**Sector mix (filtered)**"
+            )
             if "Secteur" in filtered.columns:
                 top = filtered["Secteur"].value_counts().head(16)
             else:
@@ -5102,20 +5264,31 @@ def run_app() -> None:
                 st.plotly_chart(plotly_treemap(top, ""),
                                 use_container_width=True, config={"displayModeBar": False})
             else:
-                st.info("Aucune startup avec ces filtres.")
+                st.info(
+                    "Aucune startup avec ces filtres."
+                    if is_fr_p else "No startups match these filters."
+                )
         with c_right:
-            st.markdown("**Segments comportementaux**")
+            st.markdown(
+                "**Segments comportementaux**"
+                if is_fr_p else "**Behavioural segments**"
+            )
+            seg_rename = (
+                {"profile": "Segment", "startups": "Startups",
+                 "funded_rate": "% finances", "avg_age": "Age moyen"}
+                if is_fr_p
+                else {"profile": "Segment", "startups": "Startups",
+                      "funded_rate": "Funded %", "avg_age": "Avg age"}
+            )
             st.dataframe(
-                segment_summary.rename(columns={
-                    "profile": "Segment",
-                    "startups": "Startups",
-                    "funded_rate": "Funded %",
-                    "avg_age": "Age moyen",
-                }),
+                segment_summary.rename(columns=seg_rename),
                 use_container_width=True, hide_index=True, height=320,
             )
 
-        st.markdown("**Cartes startups (top 24 filtrees)**")
+        st.markdown(
+            "**Cartes startups (top 24 filtrees)**"
+            if is_fr_p else "**Startup cards (top 24 filtered)**"
+        )
         name_col = "Nom" if "Nom" in filtered.columns else None
         secteur_col = "Secteur" if "Secteur" in filtered.columns else "sector"
         cards_html = []
@@ -5148,7 +5321,11 @@ def run_app() -> None:
         st.markdown(f"<div class='pf-grid'>{''.join(cards_html)}</div>",
                     unsafe_allow_html=True)
 
-        with st.expander("Table detaillee (jusqu'a 500 lignes filtrees)", expanded=False):
+        with st.expander(
+            "Table detaillee (jusqu'a 500 lignes filtrees)"
+            if is_fr_p else "Detailed table (up to 500 filtered rows)",
+            expanded=False,
+        ):
             display_cols = [
                 col for col in ["Nom", "Secteur", "Region", "founding_year", "funded", "profile"]
                 if col in filtered.columns
