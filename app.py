@@ -3095,7 +3095,7 @@ FIN_KEYWORDS: dict[str, list[str]] = {
     "current_liabilities": ["current liabilities", "passif circulant", "passif courant", "dettes court terme"],
     "total_liabilities": ["total liabilities", "total passif", "dettes totales"],
     "accounts_payable": ["accounts payable", "trade payables", "dettes fournisseurs", "fournisseurs"],
-    "equity": ["total equity", "shareholders equity", "stockholders equity", "capitaux propres", "fonds propres"],
+    "equity": ["total equity", "shareholders equity", "stockholders equity", "capitaux propres", "fonds propres", "total stockholders", "equity"],
     "long_term_debt": ["long term debt", "long-term debt", "non current liabilities", "dettes long terme", "dettes financieres long terme"],
     # Cash flow
     "operating_cash_flow": ["cash from operations", "operating cash flow", "ocf", "flux de tresorerie d'exploitation", "tresorerie d'exploitation"],
