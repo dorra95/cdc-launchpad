@@ -184,19 +184,30 @@ def _money_to_float(value: Any) -> float:
     text = str(value)
     if not text.strip():
         return float("nan")
-    text = text.replace("\xa0", " ")
+    text = text.replace("\xa0", " ").strip()
+    # Parenthesised negatives: (13 738,418) -> negative
+    is_neg_paren = bool(re.match(r"^\s*\(.*\)\s*$", text))
+    # Explicit minus signs (ASCII, en-dash, em-dash, Unicode minus)
+    if any(text.startswith(s) for s in ("-", "–", "—", "−")):
+        is_neg_paren = True
+        text = text[1:]
     match = re.search(r"-?\d[\d\s,.]*", text)
     if not match:
         return float("nan")
     number = match.group(0).replace(" ", "")
     if "," in number and "." in number:
-        number = number.replace(",", "")
+        # Decide which is the decimal separator by looking at the rightmost one
+        if number.rfind(",") > number.rfind("."):
+            number = number.replace(".", "").replace(",", ".")
+        else:
+            number = number.replace(",", "")
     elif "," in number:
         number = number.replace(",", ".")
     try:
-        return float(number)
+        v = float(number)
     except ValueError:
         return float("nan")
+    return -v if (is_neg_paren and v > 0) else v
 
 
 def _yes_from_notna(df: pd.DataFrame, column: str) -> pd.Series:
@@ -3072,35 +3083,103 @@ def fmva_pdf(
 # ---------------------------------------------------------------------------
 FIN_KEYWORDS: dict[str, list[str]] = {
     # Income statement
-    "revenue": ["revenue", "sales", "total revenue", "chiffre d'affaires", "ca net", "turnover", "produits d'exploitation"],
-    "cogs": ["cogs", "cost of goods", "cost of sales", "cost of revenue", "cout des ventes", "achats consommes", "couts d'achat"],
+    "revenue": [
+        "total des produits d exploitation", "produits d exploitation",
+        "chiffre d affaires", "ca net", "total revenue",
+        "revenue", "revenus", "sales", "turnover",
+    ],
+    "cogs": [
+        "achats consommes d approvisionnements", "achats de marchandises consommes",
+        "cost of goods", "cost of sales", "cost of revenue", "cogs",
+        "cout des ventes", "couts d achat", "achats consommes",
+    ],
     "gross_profit": ["gross profit", "gross margin", "marge brute"],
-    "opex": ["operating expenses", "opex", "total opex", "operating costs", "charges d'exploitation", "charges externes"],
+    "opex": [
+        "total des charges d exploitation", "charges d exploitation", "charges externes",
+        "operating expenses", "operating costs", "total opex", "opex",
+    ],
     "sga": ["selling general", "sg&a", "sga", "frais administratifs", "frais commerciaux"],
     "rd": ["research and development", "r&d", "research & development", "frais de recherche"],
     "ebitda": ["ebitda"],
-    "ebit": ["ebit", "operating income", "resultat d'exploitation", "operating profit"],
-    "net_income": ["net income", "net profit", "earnings after tax", "resultat net", "benefice net", "resultat de l'exercice"],
-    "interest_expense": ["interest expense", "finance cost", "charges financieres", "interest paid"],
-    "tax": ["income tax", "tax expense", "impot sur les benefices", "impot societes"],
-    "depreciation": ["depreciation", "amortissement", "amortization", "depreciation and amortization", "d&a"],
+    "ebit": [
+        "resultat d exploitation", "resultat des activites ordinaires avant impot",
+        "ebit", "operating income", "operating profit",
+    ],
+    "net_income": [
+        "resultat net de l exercice", "resultat de l exercice", "resultat net",
+        "resultat apres modifications comptables", "benefice net",
+        "net income", "net profit", "earnings after tax",
+    ],
+    "interest_expense": [
+        "charges financieres nettes", "charges financieres", "interest expense",
+        "finance cost", "interest paid",
+    ],
+    "tax": [
+        "impot sur les benefices", "autres impots sur les benefices",
+        "income tax", "tax expense", "impot societes",
+    ],
+    "depreciation": [
+        "dotations aux amortissements et aux provisions", "dotations aux amortissements",
+        "depreciation and amortization", "depreciation", "amortissement", "amortization", "d&a",
+    ],
+    "personnel": ["charges de personnel", "personnel expenses", "wages and salaries"],
     # Balance sheet
-    "total_assets": ["total assets", "total actif"],
-    "current_assets": ["current assets", "actif circulant", "actif courant"],
-    "ppe": ["property plant", "ppe", "net ppe", "immobilisations corporelles", "fixed assets"],
-    "intangibles": ["intangible assets", "goodwill", "immobilisations incorporelles"],
-    "cash": ["cash and equivalents", "cash and cash equivalents", "cash", "tresorerie", "disponibilites"],
-    "receivables": ["accounts receivable", "trade receivables", "creances clients"],
-    "inventory": ["inventory", "inventories", "stocks", "inventaire"],
-    "current_liabilities": ["current liabilities", "passif circulant", "passif courant", "dettes court terme"],
-    "total_liabilities": ["total liabilities", "total passif", "dettes totales"],
-    "accounts_payable": ["accounts payable", "trade payables", "dettes fournisseurs", "fournisseurs"],
-    "equity": ["total equity", "shareholders equity", "stockholders equity", "capitaux propres", "fonds propres", "total stockholders", "equity"],
-    "long_term_debt": ["long term debt", "long-term debt", "non current liabilities", "dettes long terme", "dettes financieres long terme"],
+    "total_assets": ["total des actifs", "total actifs", "total assets", "total actif"],
+    "current_assets": [
+        "total des actifs courants", "actifs courants",
+        "current assets", "actif circulant", "actif courant",
+    ],
+    "non_current_assets": [
+        "total des actifs non courants", "actifs non courants",
+        "non current assets", "actif non courant",
+    ],
+    "ppe": [
+        "immobilisations corporelles", "property plant", "ppe", "net ppe", "fixed assets",
+    ],
+    "intangibles": [
+        "immobilisations incorporelles", "intangible assets", "goodwill",
+    ],
+    "cash": [
+        "liquidites et equivalents de liquidites", "liquidites", "tresorerie", "disponibilites",
+        "cash and equivalents", "cash and cash equivalents", "cash",
+    ],
+    "receivables": [
+        "clients et comptes rattaches", "creances clients",
+        "accounts receivable", "trade receivables",
+    ],
+    "inventory": ["stocks", "inventory", "inventories", "inventaire"],
+    "current_liabilities": [
+        "total des passifs courants", "passifs courants",
+        "current liabilities", "passif circulant", "passif courant", "dettes court terme",
+    ],
+    "non_current_liabilities": [
+        "total des passifs non courants", "passifs non courants",
+        "non current liabilities",
+    ],
+    "total_liabilities": ["total des passifs", "total liabilities", "total passif", "dettes totales"],
+    "accounts_payable": [
+        "fournisseurs et comptes rattaches", "fournisseurs",
+        "accounts payable", "trade payables", "dettes fournisseurs",
+    ],
+    "equity": [
+        "total des capitaux propres avant affectation", "total des capitaux propres",
+        "capitaux propres", "fonds propres", "capital social",
+        "total equity", "shareholders equity", "stockholders equity", "total stockholders", "equity",
+    ],
+    "long_term_debt": [
+        "emprunts", "dettes financieres long terme", "dettes long terme",
+        "long term debt", "long-term debt", "non current debt",
+    ],
     # Cash flow
-    "operating_cash_flow": ["cash from operations", "operating cash flow", "ocf", "flux de tresorerie d'exploitation", "tresorerie d'exploitation"],
-    "capex": ["capital expenditure", "capex", "investments in ppe", "investissements", "acquisition d'immobilisations"],
-    "dividends_paid": ["dividends paid", "dividends", "dividendes"],
+    "operating_cash_flow": [
+        "flux de tresorerie d exploitation", "tresorerie d exploitation",
+        "cash from operations", "operating cash flow", "ocf",
+    ],
+    "capex": [
+        "acquisition d immobilisations", "investissements",
+        "capital expenditure", "capex", "investments in ppe",
+    ],
+    "dividends_paid": ["dividendes", "dividends paid", "dividends"],
 }
 
 
@@ -3176,6 +3255,24 @@ def _extract_dataframe_from_docx(file_bytes: bytes) -> pd.DataFrame:
 
 
 def parse_financial_statement(file_bytes: bytes, filename: str) -> dict[str, Any]:
+    """Safe top-level wrapper - catches any unexpected exception and returns a
+    clean error dict so the UI never crashes on a malformed financial file."""
+    try:
+        return _parse_financial_statement_impl(file_bytes, filename)
+    except Exception as exc:
+        import traceback
+        print("[CDC LAUNCHPAD] parse_financial_statement crash:", flush=True)
+        traceback.print_exc()
+        return {
+            "ok": False,
+            "error": (
+                f"Lecture impossible ({type(exc).__name__}): {str(exc)[:140]}. "
+                f"Essayer un autre format (xlsx, csv) ou verifier la structure du fichier."
+            ),
+        }
+
+
+def _parse_financial_statement_impl(file_bytes: bytes, filename: str) -> dict[str, Any]:
     """Read an uploaded financial statement (Excel, CSV, PDF or DOCX) and
     extract recognised line items as both a latest-year dict AND a multi-year
     time series keyed by year/column index."""
@@ -3248,15 +3345,25 @@ def parse_financial_statement(file_bytes: bytes, filename: str) -> dict[str, Any
     if not period_columns:
         return {"ok": False, "error": "Aucune colonne numerique detectee."}
 
+    def _norm_label(text: str) -> str:
+        text = unicodedata.normalize("NFKD", str(text))
+        text = text.encode("ascii", "ignore").decode("ascii").lower()
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 &]+", " ", text)).strip()
+
+    norm_keywords: dict[str, list[str]] = {
+        k: [_norm_label(kw) for kw in kws] for k, kws in FIN_KEYWORDS.items()
+    }
     extracted: dict[str, float] = {}
     time_series: dict[str, dict[str, float]] = {}
-    label_series = df[label_col_idx].astype(str).str.lower()
-    for row_i, label in enumerate(label_series):
-        norm = re.sub(r"[^a-z0-9 &]+", " ", label).strip()
-        for key, kws in FIN_KEYWORDS.items():
+    label_series = df[label_col_idx].astype(str)
+    for row_i, raw_label in enumerate(label_series):
+        norm = _norm_label(raw_label)
+        if not norm:
+            continue
+        for key, kws in norm_keywords.items():
             if key in extracted:
                 continue
-            if any(kw in norm for kw in kws):
+            if any(kw and kw in norm for kw in kws):
                 period_vals: dict[str, float] = {}
                 for col, year_label in period_columns:
                     val = _money_to_float(df.iloc[row_i][col])
@@ -3542,9 +3649,13 @@ def project_financials(time_series: dict[str, dict[str, float]],
         if periods[-1] not in vals or periods[0] not in vals:
             continue
         v_last, v_first = vals[periods[-1]], vals[periods[0]]
-        if v_last is None or v_first is None or v_first <= 0:
+        # CAGR maths only valid when both endpoints are strictly positive.
+        if v_last is None or v_first is None or v_first <= 0 or v_last <= 0:
             continue
-        g = (v_last / v_first) ** (1.0 / n) - 1.0
+        try:
+            g = (v_last / v_first) ** (1.0 / n) - 1.0
+        except (ValueError, ZeroDivisionError, TypeError):
+            continue
         # Cap growth assumption for sanity
         g = max(-0.30, min(0.50, g))
         forward: list[float] = []
@@ -7674,12 +7785,25 @@ def run_app() -> None:
                 with st.expander("Lignes extraites", expanded=False):
                     st.dataframe(extracted_df, use_container_width=True, hide_index=True)
 
-                ratios = compute_financial_ratios(data)
-                memo = financial_memo(
-                    data, ratios,
-                    time_series=parsed.get("time_series", {}),
-                    periods=parsed.get("periods", []),
-                )
+                try:
+                    ratios = compute_financial_ratios(data)
+                    memo = financial_memo(
+                        data, ratios,
+                        time_series=parsed.get("time_series", {}),
+                        periods=parsed.get("periods", []),
+                    )
+                except Exception as _exc:
+                    import traceback as _tb
+                    _tb.print_exc()
+                    st.error(
+                        f"Erreur d'analyse : {type(_exc).__name__}. "
+                        f"Verifier que les libelles standard sont reconnaissables."
+                        if is_fr
+                        else f"Analysis error: {type(_exc).__name__}. "
+                             f"Check that standard labels are recognisable."
+                    )
+                    st.caption(str(_exc)[:200])
+                    st.stop()
                 session["last_financial"] = {
                     "data": data, "ratios": ratios, "memo": memo,
                     "name": startup_name,
