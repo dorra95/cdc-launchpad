@@ -7784,16 +7784,16 @@ def run_app() -> None:
                     }
                     tr_rows: list[dict[str, str]] = []
                     for key, (lbl_fr, lbl_en) in tr_label.items():
-                        t = tr.get(key) or {}
-                        if t.get("last") is None:
+                        tr_data = tr.get(key) or {}
+                        if tr_data.get("last") is None:
                             continue
-                        yoy = t.get("yoy")
-                        cagr = t.get("cagr")
+                        yoy = tr_data.get("yoy")
+                        cagr = tr_data.get("cagr")
                         arrow = "->" if (yoy is None or abs(yoy) < 0.01) else ("UP" if yoy > 0 else "DOWN")
                         tr_rows.append({
                             ("Ligne" if is_fr else "Line"): (lbl_fr if is_fr else lbl_en),
-                            (f"{periods[-2]}"): f"{t.get('prior', 0):,.0f}",
-                            (f"{periods[-1]}"): f"{t.get('last', 0):,.0f}",
+                            (f"{periods[-2]}"): f"{tr_data.get('prior', 0):,.0f}",
+                            (f"{periods[-1]}"): f"{tr_data.get('last', 0):,.0f}",
                             ("YoY"): (f"{yoy*100:+.1f}% {arrow}" if yoy is not None else "-"),
                             ("CAGR"): (f"{cagr*100:+.1f}%" if cagr is not None else "-"),
                         })
