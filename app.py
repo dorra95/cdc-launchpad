@@ -3071,49 +3071,145 @@ def fmva_pdf(
 # and produces a structured investment memo.
 # ---------------------------------------------------------------------------
 FIN_KEYWORDS: dict[str, list[str]] = {
-    "revenue": ["revenue", "sales", "chiffre d'affaires", "ca net", "turnover", "produit"],
-    "cogs": ["cogs", "cost of goods", "cost of sales", "cout des ventes", "achats consommes"],
-    "gross_profit": ["gross profit", "marge brute"],
-    "opex": ["operating expenses", "opex", "charges d'exploitation", "operating cost"],
+    # Income statement
+    "revenue": ["revenue", "sales", "total revenue", "chiffre d'affaires", "ca net", "turnover", "produits d'exploitation"],
+    "cogs": ["cogs", "cost of goods", "cost of sales", "cost of revenue", "cout des ventes", "achats consommes", "couts d'achat"],
+    "gross_profit": ["gross profit", "gross margin", "marge brute"],
+    "opex": ["operating expenses", "opex", "total opex", "operating costs", "charges d'exploitation", "charges externes"],
+    "sga": ["selling general", "sg&a", "sga", "frais administratifs", "frais commerciaux"],
+    "rd": ["research and development", "r&d", "research & development", "frais de recherche"],
     "ebitda": ["ebitda"],
-    "ebit": ["ebit", "operating income", "resultat d'exploitation"],
-    "net_income": ["net income", "net profit", "resultat net", "benefice net"],
-    "interest_expense": ["interest expense", "charges financieres", "interest paid"],
-    "tax": ["income tax", "impot sur les benefices", "impot societes"],
-    "depreciation": ["depreciation", "amortissement", "amortization"],
+    "ebit": ["ebit", "operating income", "resultat d'exploitation", "operating profit"],
+    "net_income": ["net income", "net profit", "earnings after tax", "resultat net", "benefice net", "resultat de l'exercice"],
+    "interest_expense": ["interest expense", "finance cost", "charges financieres", "interest paid"],
+    "tax": ["income tax", "tax expense", "impot sur les benefices", "impot societes"],
+    "depreciation": ["depreciation", "amortissement", "amortization", "depreciation and amortization", "d&a"],
+    # Balance sheet
     "total_assets": ["total assets", "total actif"],
     "current_assets": ["current assets", "actif circulant", "actif courant"],
-    "cash": ["cash and equivalents", "cash", "tresorerie", "disponibilites"],
-    "receivables": ["accounts receivable", "creances clients", "trade receivables"],
-    "inventory": ["inventory", "stocks", "inventaire"],
+    "ppe": ["property plant", "ppe", "net ppe", "immobilisations corporelles", "fixed assets"],
+    "intangibles": ["intangible assets", "goodwill", "immobilisations incorporelles"],
+    "cash": ["cash and equivalents", "cash and cash equivalents", "cash", "tresorerie", "disponibilites"],
+    "receivables": ["accounts receivable", "trade receivables", "creances clients"],
+    "inventory": ["inventory", "inventories", "stocks", "inventaire"],
     "current_liabilities": ["current liabilities", "passif circulant", "passif courant", "dettes court terme"],
     "total_liabilities": ["total liabilities", "total passif", "dettes totales"],
-    "equity": ["total equity", "shareholders equity", "capitaux propres", "fonds propres"],
-    "long_term_debt": ["long term debt", "dettes long terme", "dettes financieres", "non current debt"],
+    "accounts_payable": ["accounts payable", "trade payables", "dettes fournisseurs", "fournisseurs"],
+    "equity": ["total equity", "shareholders equity", "stockholders equity", "capitaux propres", "fonds propres"],
+    "long_term_debt": ["long term debt", "long-term debt", "non current liabilities", "dettes long terme", "dettes financieres long terme"],
+    # Cash flow
+    "operating_cash_flow": ["cash from operations", "operating cash flow", "ocf", "flux de tresorerie d'exploitation", "tresorerie d'exploitation"],
+    "capex": ["capital expenditure", "capex", "investments in ppe", "investissements", "acquisition d'immobilisations"],
+    "dividends_paid": ["dividends paid", "dividends", "dividendes"],
 }
 
 
+# --- Multi-format extraction helpers ---------------------------------------
+def _extract_dataframe_from_pdf(file_bytes: bytes) -> pd.DataFrame:
+    """Extract a flat dataframe of (label, val_year_n, ...) from any PDF.
+    Tries native tables first, then falls back to text-line parsing."""
+    try:
+        import pdfplumber
+    except Exception as exc:
+        raise RuntimeError(f"pdfplumber not installed: {exc}")
+
+    all_rows: list[list[Any]] = []
+    max_cols = 1
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            # First try structured tables
+            try:
+                tables = page.extract_tables() or []
+            except Exception:
+                tables = []
+            for table in tables:
+                for row in table:
+                    if row and any(cell and str(cell).strip() for cell in row):
+                        cleaned = [str(c).strip() if c is not None else "" for c in row]
+                        all_rows.append(cleaned)
+                        max_cols = max(max_cols, len(cleaned))
+            # Fallback: text lines with a label + at least one numeric token
+            text = (page.extract_text() or "")
+            for line in text.split("\n"):
+                if any(ch.isdigit() for ch in line) and any(ch.isalpha() for ch in line):
+                    # Split on 2+ whitespace to separate label from numeric columns
+                    parts = re.split(r"\s{2,}|\t+", line.strip())
+                    if len(parts) >= 2:
+                        all_rows.append(parts)
+                        max_cols = max(max_cols, len(parts))
+    if not all_rows:
+        return pd.DataFrame()
+    # Normalise row lengths
+    normalised = [row + [""] * (max_cols - len(row)) for row in all_rows]
+    return pd.DataFrame(normalised)
+
+
+def _extract_dataframe_from_docx(file_bytes: bytes) -> pd.DataFrame:
+    """Extract a flat dataframe from a .docx file (tables first, paragraphs fallback)."""
+    try:
+        import docx as _docx
+    except Exception as exc:
+        raise RuntimeError(f"python-docx not installed: {exc}")
+
+    doc = _docx.Document(io.BytesIO(file_bytes))
+    all_rows: list[list[str]] = []
+    max_cols = 1
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells]
+            if any(cells):
+                all_rows.append(cells)
+                max_cols = max(max_cols, len(cells))
+    # Fallback: any paragraph that looks like 'Label: value' or 'Label  value  value'
+    for para in doc.paragraphs:
+        line = para.text.strip()
+        if not line or not any(ch.isdigit() for ch in line):
+            continue
+        parts = re.split(r"\s{2,}|:\s*|\t+", line)
+        if len(parts) >= 2:
+            all_rows.append(parts)
+            max_cols = max(max_cols, len(parts))
+    if not all_rows:
+        return pd.DataFrame()
+    normalised = [row + [""] * (max_cols - len(row)) for row in all_rows]
+    return pd.DataFrame(normalised)
+
+
 def parse_financial_statement(file_bytes: bytes, filename: str) -> dict[str, Any]:
-    """Read an uploaded financial statement and extract the most recent year's values."""
+    """Read an uploaded financial statement (Excel, CSV, PDF or DOCX) and
+    extract recognised line items as both a latest-year dict AND a multi-year
+    time series keyed by year/column index."""
     name = filename.lower()
-    bio = io.BytesIO(file_bytes)
-    if name.endswith((".xls", ".xlsx", ".xlsm")):
-        try:
-            df = pd.read_excel(bio, header=None)
-        except Exception:
-            return {"ok": False, "error": "Excel illisible. Verifier le format."}
-    elif name.endswith(".csv"):
-        try:
-            df = pd.read_csv(bio, header=None, sep=None, engine="python")
-        except Exception:
-            return {"ok": False, "error": "CSV illisible."}
-    else:
-        return {"ok": False, "error": "Format non supporte (utiliser xlsx ou csv)."}
+    df: pd.DataFrame
+    try:
+        if name.endswith((".xls", ".xlsx", ".xlsm")):
+            df = pd.read_excel(io.BytesIO(file_bytes), header=None)
+        elif name.endswith(".csv"):
+            df = pd.read_csv(io.BytesIO(file_bytes), header=None, sep=None, engine="python")
+        elif name.endswith(".pdf"):
+            df = _extract_dataframe_from_pdf(file_bytes)
+        elif name.endswith((".docx", ".doc")):
+            df = _extract_dataframe_from_docx(file_bytes)
+        elif name.endswith(".txt"):
+            df = pd.read_csv(io.BytesIO(file_bytes), header=None, sep=r"\s{2,}|\t+|;",
+                             engine="python")
+        else:
+            return {
+                "ok": False,
+                "error": (
+                    "Format non supporte. Formats acceptes : .xlsx, .xls, .csv, "
+                    ".pdf, .docx, .txt"
+                ),
+            }
+    except RuntimeError as exc:
+        return {"ok": False, "error": f"Lecteur indisponible: {exc}"}
+    except Exception as exc:
+        return {"ok": False, "error": f"Fichier illisible: {type(exc).__name__}"}
 
     # Drop fully empty rows/cols
     df = df.dropna(axis=0, how="all").dropna(axis=1, how="all").reset_index(drop=True)
     if df.empty:
-        return {"ok": False, "error": "Fichier vide."}
+        return {"ok": False, "error": "Fichier vide ou contenu non extractible."}
 
     # The label column is the first column with mostly strings, the numeric columns are the rest.
     label_col_idx = 0
@@ -3123,36 +3219,78 @@ def parse_financial_statement(file_bytes: bytes, filename: str) -> dict[str, Any
             label_col_idx = col
             break
 
+    # Try to read year headers from the first 3 rows (numbers between 1990 and 2099).
+    year_headers: list[str] = []
+    for col in df.columns:
+        if col == label_col_idx:
+            continue
+        header_val = ""
+        for row_i in range(min(3, len(df))):
+            cell = str(df.iloc[row_i][col]).strip()
+            m = re.search(r"(19[5-9]\d|20\d\d)", cell)
+            if m:
+                header_val = m.group(1); break
+        year_headers.append(header_val)
+
+    # Fallback to generic period labels.
+    used_years: set[str] = set()
+    period_columns: list[tuple[Any, str]] = []
+    fallback_idx = 1
+    for raw_year, col in zip(year_headers,
+                             [c for c in df.columns if c != label_col_idx]):
+        label = raw_year
+        if not label or label in used_years:
+            label = f"P{fallback_idx}"
+            fallback_idx += 1
+        used_years.add(label)
+        period_columns.append((col, label))
+
+    if not period_columns:
+        return {"ok": False, "error": "Aucune colonne numerique detectee."}
+
     extracted: dict[str, float] = {}
+    time_series: dict[str, dict[str, float]] = {}
     label_series = df[label_col_idx].astype(str).str.lower()
     for row_i, label in enumerate(label_series):
-        norm = re.sub(r"[^a-z0-9 ]+", " ", label).strip()
+        norm = re.sub(r"[^a-z0-9 &]+", " ", label).strip()
         for key, kws in FIN_KEYWORDS.items():
             if key in extracted:
                 continue
-            for kw in kws:
-                if kw in norm:
-                    numeric_cells: list[float] = []
-                    for col in df.columns:
-                        if col == label_col_idx:
-                            continue
-                        val = _money_to_float(df.iloc[row_i][col])
-                        if not pd.isna(val):
-                            numeric_cells.append(val)
-                    if numeric_cells:
-                        extracted[key] = numeric_cells[-1]
-                    break
+            if any(kw in norm for kw in kws):
+                period_vals: dict[str, float] = {}
+                for col, year_label in period_columns:
+                    val = _money_to_float(df.iloc[row_i][col])
+                    if not pd.isna(val):
+                        period_vals[year_label] = val
+                if period_vals:
+                    extracted[key] = list(period_vals.values())[-1]
+                    time_series[key] = period_vals
+                break
 
     if not extracted:
-        return {"ok": False, "error": "Aucune ligne reconnue. Renommer les libelles selon les standards."}
+        return {
+            "ok": False,
+            "error": (
+                "Aucune ligne reconnue. Verifier que les libelles utilisent les "
+                "termes standard (Revenue, EBITDA, Net income, Total assets...)."
+            ),
+        }
 
-    # Fill derivations
+    # Fill derivations.
     if "gross_profit" not in extracted and "revenue" in extracted and "cogs" in extracted:
         extracted["gross_profit"] = extracted["revenue"] - abs(extracted["cogs"])
     if "ebit" not in extracted and "ebitda" in extracted and "depreciation" in extracted:
         extracted["ebit"] = extracted["ebitda"] - abs(extracted["depreciation"])
 
-    return {"ok": True, "extracted": extracted, "n_rows": int(len(df))}
+    periods = [p for _, p in period_columns]
+    return {
+        "ok": True,
+        "extracted": extracted,
+        "time_series": time_series,
+        "periods": periods,
+        "n_rows": int(len(df)),
+        "n_periods": len(periods),
+    }
 
 
 def _safe_div(num: float, den: float) -> float | None:
@@ -3207,7 +3345,27 @@ def compute_financial_ratios(data: dict[str, float]) -> dict[str, dict[str, Any]
     int_cov = _safe_div(ebit, interest) if (ebit is not None and interest) else None
     asset_turn = _safe_div(revenue, total_assets) if total_assets else None
 
-    return {
+    # Working capital days (CFA toolkit)
+    receivables = data.get("receivables")
+    accounts_payable = data.get("accounts_payable")
+    cogs_abs = abs(data.get("cogs", 0.0)) if data.get("cogs") is not None else None
+    dso = _safe_div(receivables * 365.0, revenue) if (receivables and revenue) else None
+    dio = _safe_div(inventory * 365.0, cogs_abs) if (inventory and cogs_abs) else None
+    dpo = _safe_div(accounts_payable * 365.0, cogs_abs) if (accounts_payable and cogs_abs) else None
+    ccc = None
+    if dso is not None and dio is not None and dpo is not None:
+        ccc = dso + dio - dpo
+    # Free cash flow proxy (OCF - CapEx) and FCF margin
+    ocf = data.get("operating_cash_flow")
+    capex = data.get("capex")
+    fcf = (ocf - abs(capex)) if (ocf is not None and capex is not None) else None
+    fcf_margin = _safe_div(fcf, revenue) if (fcf is not None and revenue) else None
+    # Working capital
+    working_capital = None
+    if current_assets is not None and current_liab is not None:
+        working_capital = current_assets - current_liab
+
+    base = {
         "Marge brute": {
             "value": gm, "fmt": "pct",
             "flag": flag(gm, 0.35, 0.20),
@@ -3222,6 +3380,11 @@ def compute_financial_ratios(data: dict[str, float]) -> dict[str, dict[str, Any]
             "value": nm, "fmt": "pct",
             "flag": flag(nm, 0.10, 0.0),
             "explanation": "Resultat net rapporte au chiffre d'affaires - rentabilite finale apres impots.",
+        },
+        "Marge FCF": {
+            "value": fcf_margin, "fmt": "pct",
+            "flag": flag(fcf_margin, 0.08, 0.0),
+            "explanation": "Free cash flow (OCF - CapEx) / CA - cash genere par dinar de revenu.",
         },
         "ROA": {
             "value": roa, "fmt": "pct",
@@ -3248,6 +3411,26 @@ def compute_financial_ratios(data: dict[str, float]) -> dict[str, dict[str, Any]
             "flag": flag(cash_r, 0.5, 0.2),
             "explanation": "Liquidite stricte - tresorerie / passif court terme.",
         },
+        "DSO (jours)": {
+            "value": dso, "fmt": "days",
+            "flag": flag(dso, 60, 90, higher_is_better=False),
+            "explanation": "Days Sales Outstanding - delai moyen de recouvrement des creances clients.",
+        },
+        "DIO (jours)": {
+            "value": dio, "fmt": "days",
+            "flag": flag(dio, 60, 120, higher_is_better=False),
+            "explanation": "Days Inventory Outstanding - duree moyenne de detention des stocks.",
+        },
+        "DPO (jours)": {
+            "value": dpo, "fmt": "days",
+            "flag": flag(dpo, 60, 30),  # higher DPO is favourable for cash
+            "explanation": "Days Payable Outstanding - delai moyen de paiement des fournisseurs.",
+        },
+        "CCC (jours)": {
+            "value": ccc, "fmt": "days",
+            "flag": flag(ccc, 30, 60, higher_is_better=False),
+            "explanation": "Cash Conversion Cycle = DSO + DIO - DPO - jours bloques en cycle d'exploitation.",
+        },
         "Dette / Fonds propres": {
             "value": de, "fmt": "x",
             "flag": flag(de, 1.0, 2.0, higher_is_better=False),
@@ -3269,17 +3452,221 @@ def compute_financial_ratios(data: dict[str, float]) -> dict[str, dict[str, Any]
             "explanation": "Chiffre d'affaires / actif total - intensite d'utilisation du bilan.",
         },
     }
+    return base
+
+
+def dupont_decomposition(data: dict[str, float]) -> dict[str, Any]:
+    """ROE = Net margin x Asset turnover x Equity multiplier (CFA 3-step DuPont)."""
+    ni = data.get("net_income")
+    revenue = data.get("revenue", 0.0)
+    total_assets = data.get("total_assets")
+    equity = data.get("equity")
+    nm = _safe_div(ni, revenue) if (ni is not None and revenue) else None
+    at = _safe_div(revenue, total_assets) if total_assets else None
+    em = _safe_div(total_assets, equity) if (total_assets and equity) else None
+    roe = None
+    if nm is not None and at is not None and em is not None:
+        roe = nm * at * em
+    return {
+        "net_margin": nm,
+        "asset_turnover": at,
+        "equity_multiplier": em,
+        "roe": roe,
+    }
+
+
+def common_size_income_statement(data: dict[str, float]) -> list[dict[str, Any]]:
+    """Return income-statement lines as absolute + % of revenue."""
+    revenue = data.get("revenue", 0.0)
+    if not revenue:
+        return []
+    lines = [
+        ("Revenue", data.get("revenue")),
+        ("COGS", -abs(data.get("cogs", 0.0)) if data.get("cogs") is not None else None),
+        ("Gross profit", data.get("gross_profit")),
+        ("OpEx", -abs(data.get("opex", 0.0)) if data.get("opex") is not None else None),
+        ("SG&A", -abs(data.get("sga", 0.0)) if data.get("sga") is not None else None),
+        ("R&D", -abs(data.get("rd", 0.0)) if data.get("rd") is not None else None),
+        ("EBITDA", data.get("ebitda")),
+        ("Depreciation", -abs(data.get("depreciation", 0.0)) if data.get("depreciation") is not None else None),
+        ("EBIT", data.get("ebit")),
+        ("Interest", -abs(data.get("interest_expense", 0.0)) if data.get("interest_expense") is not None else None),
+        ("Tax", -abs(data.get("tax", 0.0)) if data.get("tax") is not None else None),
+        ("Net income", data.get("net_income")),
+    ]
+    rows: list[dict[str, Any]] = []
+    for label, value in lines:
+        if value is None:
+            continue
+        rows.append({
+            "label": label,
+            "value": value,
+            "pct_of_revenue": value / revenue,
+        })
+    return rows
+
+
+def yoy_trends(time_series: dict[str, dict[str, float]],
+               periods: list[str]) -> dict[str, dict[str, Any]]:
+    """Return per-line YoY change (latest vs prior) and CAGR over the full window."""
+    out: dict[str, dict[str, Any]] = {}
+    if not periods or len(periods) < 2:
+        return out
+    last, prior = periods[-1], periods[-2]
+    first = periods[0]
+    n = max(1, len(periods) - 1)
+    for key, vals in time_series.items():
+        if last not in vals or prior not in vals:
+            continue
+        v_last, v_prior, v_first = vals[last], vals[prior], vals.get(first)
+        yoy = None
+        if v_prior and v_prior != 0:
+            yoy = (v_last - v_prior) / abs(v_prior)
+        cagr = None
+        if v_first and v_first > 0 and v_last and v_last > 0:
+            cagr = (v_last / v_first) ** (1.0 / n) - 1.0
+        out[key] = {"yoy": yoy, "cagr": cagr, "last": v_last, "prior": v_prior}
+    return out
+
+
+def project_financials(time_series: dict[str, dict[str, float]],
+                       periods: list[str], years: int = 3) -> dict[str, list[float]]:
+    """Project key lines forward using observed CAGR (or YoY if only 2 periods)."""
+    proj: dict[str, list[float]] = {}
+    if not periods or len(periods) < 2:
+        return proj
+    n = max(1, len(periods) - 1)
+    for key in ["revenue", "ebitda", "ebit", "net_income", "total_assets", "equity",
+                "operating_cash_flow"]:
+        vals = time_series.get(key, {})
+        if periods[-1] not in vals or periods[0] not in vals:
+            continue
+        v_last, v_first = vals[periods[-1]], vals[periods[0]]
+        if v_last is None or v_first is None or v_first <= 0:
+            continue
+        g = (v_last / v_first) ** (1.0 / n) - 1.0
+        # Cap growth assumption for sanity
+        g = max(-0.30, min(0.50, g))
+        forward: list[float] = []
+        current = v_last
+        for _ in range(years):
+            current = current * (1 + g)
+            forward.append(current)
+        proj[key] = forward
+    return proj
+
+
+def cfa_observations(ratios: dict[str, dict[str, Any]],
+                     dupont: dict[str, Any],
+                     trends: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+    """Generate per-category CFA-style observations grouped by theme."""
+    obs: dict[str, list[str]] = {
+        "profitability": [],
+        "liquidity": [],
+        "solvency": [],
+        "efficiency": [],
+        "cash": [],
+        "dupont": [],
+        "trend": [],
+    }
+    gm = ratios.get("Marge brute", {}).get("value")
+    em = ratios.get("Marge EBITDA", {}).get("value")
+    nm = ratios.get("Marge nette", {}).get("value")
+    fcfm = ratios.get("Marge FCF", {}).get("value")
+    if gm is not None:
+        if gm >= 0.5:
+            obs["profitability"].append(f"Marge brute confortable ({gm:.0%}) - pricing power et structure de couts maitrisee.")
+        elif gm >= 0.3:
+            obs["profitability"].append(f"Marge brute {gm:.0%} dans la moyenne sectorielle - optimiser le mix produit / negocier les achats.")
+        else:
+            obs["profitability"].append(f"Marge brute faible ({gm:.0%}) - couts directs eleves ou pricing insuffisant.")
+    if em is not None and nm is not None:
+        diff = em - nm
+        if diff > 0.10:
+            obs["profitability"].append(f"Marge EBITDA {em:.0%} vs nette {nm:.0%}: poids significatif des charges fiscales, financieres ou amortissements ({diff:.0%}).")
+    if fcfm is not None:
+        if fcfm >= 0.08:
+            obs["cash"].append(f"Marge FCF positive ({fcfm:.0%}) - generation de cash organique solide.")
+        elif fcfm >= 0:
+            obs["cash"].append(f"Marge FCF marginale ({fcfm:.0%}) - cash genere mais sensible aux investissements.")
+        else:
+            obs["cash"].append(f"Marge FCF negative ({fcfm:.0%}) - dependance au financement externe.")
+
+    cur = ratios.get("Current ratio", {}).get("value")
+    quick = ratios.get("Quick ratio", {}).get("value")
+    if cur is not None:
+        if cur >= 1.5:
+            obs["liquidity"].append(f"Liquidite generale solide (current {cur:.2f}x).")
+        elif cur >= 1.0:
+            obs["liquidity"].append(f"Liquidite generale juste (current {cur:.2f}x) - a surveiller en cas de hausse des charges courantes.")
+        else:
+            obs["liquidity"].append(f"Risque de liquidite (current {cur:.2f}x) - passif court terme superieur a l'actif circulant.")
+    if quick is not None and cur is not None and cur - quick > 0.5:
+        obs["liquidity"].append("Ecart important entre current et quick ratio - liquidite tributaire de la rotation des stocks.")
+
+    ccc = ratios.get("CCC (jours)", {}).get("value")
+    dso = ratios.get("DSO (jours)", {}).get("value")
+    if ccc is not None:
+        if ccc <= 30:
+            obs["efficiency"].append(f"Cycle d'exploitation court (CCC {ccc:.0f} jours) - tresorerie disponible rapidement.")
+        elif ccc <= 60:
+            obs["efficiency"].append(f"Cycle d'exploitation moyen (CCC {ccc:.0f} jours).")
+        else:
+            obs["efficiency"].append(f"Cycle d'exploitation long (CCC {ccc:.0f} jours) - immobilisation de cash dans le BFR.")
+    if dso is not None and dso > 90:
+        obs["efficiency"].append(f"DSO eleve ({dso:.0f} jours) - politique de recouvrement a renforcer.")
+
+    de = ratios.get("Dette / Fonds propres", {}).get("value")
+    icov = ratios.get("Couverture interets", {}).get("value")
+    if de is not None:
+        if de <= 1:
+            obs["solvency"].append(f"Structure de capital saine (D/E {de:.2f}x).")
+        elif de <= 2:
+            obs["solvency"].append(f"Levier modere (D/E {de:.2f}x) - soutenable si EBIT stable.")
+        else:
+            obs["solvency"].append(f"Levier eleve (D/E {de:.2f}x) - risque de service de la dette en cas de pression sur le resultat.")
+    if icov is not None:
+        if icov >= 3:
+            obs["solvency"].append(f"Couverture des interets confortable (x{icov:.1f}).")
+        elif icov >= 1.5:
+            obs["solvency"].append(f"Couverture des interets juste (x{icov:.1f}) - sensible a une baisse d'EBIT.")
+        else:
+            obs["solvency"].append(f"Couverture des interets fragile (x{icov:.1f}) - tension potentielle sur le service de la dette.")
+
+    if dupont.get("roe") is not None:
+        nm_d = dupont.get("net_margin") or 0
+        at_d = dupont.get("asset_turnover") or 0
+        em_d = dupont.get("equity_multiplier") or 0
+        obs["dupont"].append(
+            f"ROE {dupont['roe']*100:.1f}% = marge nette {nm_d*100:.1f}% x rotation {at_d:.2f}x x levier {em_d:.2f}x."
+        )
+
+    if trends:
+        rev_t = trends.get("revenue", {})
+        if rev_t.get("cagr") is not None:
+            obs["trend"].append(f"CAGR du chiffre d'affaires : {rev_t['cagr']*100:.1f}%.")
+        ebt_t = trends.get("ebitda", {})
+        if ebt_t.get("cagr") is not None:
+            obs["trend"].append(f"CAGR de l'EBITDA : {ebt_t['cagr']*100:.1f}%.")
+        if rev_t.get("yoy") is not None:
+            obs["trend"].append(f"Croissance YoY du CA : {rev_t['yoy']*100:.1f}%.")
+    return obs
 
 
 RATIO_NAMES_EN: dict[str, str] = {
     "Marge brute": "Gross margin",
     "Marge EBITDA": "EBITDA margin",
     "Marge nette": "Net margin",
+    "Marge FCF": "FCF margin",
     "ROA": "ROA",
     "ROE": "ROE",
     "Current ratio": "Current ratio",
     "Quick ratio": "Quick ratio",
     "Cash ratio": "Cash ratio",
+    "DSO (jours)": "DSO (days)",
+    "DIO (jours)": "DIO (days)",
+    "DPO (jours)": "DPO (days)",
+    "CCC (jours)": "CCC (days)",
     "Dette / Fonds propres": "Debt / Equity",
     "Dette / Actif total": "Debt / Total assets",
     "Couverture interets": "Interest coverage",
@@ -3290,11 +3677,16 @@ RATIO_EXPLANATIONS_EN: dict[str, str] = {
     "Marge brute": "How much of every dinar of revenue becomes margin before operating costs.",
     "Marge EBITDA": "Operating profitability after operating expenses, excluding financial and tax items.",
     "Marge nette": "Net income to revenue - final profitability after tax.",
+    "Marge FCF": "Free cash flow (OCF - CapEx) / revenue - organic cash generated per dinar of sales.",
     "ROA": "Return on assets - how efficiently the balance sheet generates profit.",
     "ROE": "Return on equity - financial leverage and shareholder profitability.",
     "Current ratio": "General liquidity - current assets coverage of short-term debt.",
     "Quick ratio": "Restrictive liquidity (excluding inventory) - speed of paying short-term liabilities.",
     "Cash ratio": "Strict liquidity - cash / short-term liabilities.",
+    "DSO (jours)": "Days Sales Outstanding - average collection period of trade receivables.",
+    "DIO (jours)": "Days Inventory Outstanding - average days inventory is held before sale.",
+    "DPO (jours)": "Days Payable Outstanding - average days to pay suppliers.",
+    "CCC (jours)": "Cash Conversion Cycle = DSO + DIO - DPO - days locked in working capital.",
     "Dette / Fonds propres": "Financial leverage - financial debt relative to equity.",
     "Dette / Actif total": "Total debt weight on the balance sheet.",
     "Couverture interets": "EBIT / interest expense - capacity to service debt through operating profit.",
@@ -3307,17 +3699,25 @@ def _format_ratio(value: float | None, fmt: str) -> str:
         return "n/d"
     if fmt == "pct":
         return f"{value*100:.1f}%"
+    if fmt == "days":
+        return f"{value:.0f} j"
     return f"{value:.2f}x"
 
 
-def financial_memo(data: dict[str, float], ratios: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """Generate an argued investment memo: thesis, strengths, risks, recommendation."""
+def financial_memo(
+    data: dict[str, float],
+    ratios: dict[str, dict[str, Any]],
+    time_series: dict[str, dict[str, float]] | None = None,
+    periods: list[str] | None = None,
+) -> dict[str, Any]:
+    """Generate a CFA-style investment memo with thesis, observations, projections."""
     score = 0
     weight_sum = 0
     weights = {
-        "Marge brute": 2.0, "Marge EBITDA": 3.0, "Marge nette": 2.0,
+        "Marge brute": 2.0, "Marge EBITDA": 3.0, "Marge nette": 2.0, "Marge FCF": 2.5,
         "ROA": 1.5, "ROE": 1.5,
         "Current ratio": 1.5, "Quick ratio": 1.5, "Cash ratio": 1.0,
+        "DSO (jours)": 1.0, "DIO (jours)": 1.0, "DPO (jours)": 1.0, "CCC (jours)": 1.5,
         "Dette / Fonds propres": 1.5, "Dette / Actif total": 1.0,
         "Couverture interets": 2.0, "Rotation actifs": 1.0,
     }
@@ -3400,6 +3800,12 @@ def financial_memo(data: dict[str, float], ratios: dict[str, dict[str, Any]]) ->
         next_steps.append("Notifier le porteur avec analyse motivee.")
         next_steps.append("Proposer une orientation vers un accompagnement de restructuration.")
 
+    dupont = dupont_decomposition(data)
+    common_size = common_size_income_statement(data)
+    trends = yoy_trends(time_series or {}, periods or [])
+    projections = project_financials(time_series or {}, periods or [])
+    observations = cfa_observations(ratios, dupont, trends)
+
     return {
         "health_score": health,
         "action": action,
@@ -3411,6 +3817,12 @@ def financial_memo(data: dict[str, float], ratios: dict[str, dict[str, Any]]) ->
         "risks": risks,
         "rationale": rationale,
         "next_steps": next_steps,
+        "dupont": dupont,
+        "common_size": common_size,
+        "trends": trends,
+        "projections": projections,
+        "observations": observations,
+        "periods": periods or [],
     }
 
 
@@ -3527,6 +3939,174 @@ def financial_pdf(payload: dict[str, Any], data: dict[str, float],
         for r in memo["risks"]:
             elements.append(Paragraph(f"- {r}", body))
         elements.append(Spacer(1, 4))
+
+    # ---- Extended CFA analysis sections ---------------------------------
+    dp = memo.get("dupont", {}) or {}
+    if dp.get("roe") is not None:
+        elements.append(Paragraph(
+            "Decomposition DuPont (ROE)" if is_fr else "DuPont decomposition (ROE)", h2))
+        rows_dp = [
+            ["ROE", f"{(dp['roe'] or 0)*100:.2f}%"],
+            [("Marge nette" if is_fr else "Net margin"),
+             f"{(dp.get('net_margin') or 0)*100:.2f}%"],
+            [("Rotation actifs" if is_fr else "Asset turnover"),
+             f"{(dp.get('asset_turnover') or 0):.2f}x"],
+            [("Levier financier" if is_fr else "Equity multiplier"),
+             f"{(dp.get('equity_multiplier') or 0):.2f}x"],
+        ]
+        t_dp = Table(rows_dp, colWidths=[80 * mm, 40 * mm])
+        t_dp.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor(LINE)),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("ROWBACKGROUNDS", (0, 0), (-1, -1),
+             [colors.white, colors.HexColor(LIGHT)]),
+        ]))
+        elements.append(t_dp); elements.append(Spacer(1, 6))
+
+    cs_rows = memo.get("common_size", []) or []
+    if cs_rows:
+        elements.append(Paragraph(
+            "Compte de resultat en common-size (% du CA)"
+            if is_fr else "Common-size income statement (% of revenue)", h2))
+        rows_cs = [[("Ligne" if is_fr else "Line"),
+                    ("Valeur" if is_fr else "Value"),
+                    "% CA" if is_fr else "% Revenue"]]
+        for r in cs_rows:
+            rows_cs.append([
+                r["label"], f"{r['value']:,.0f}",
+                f"{r['pct_of_revenue']*100:+.1f}%",
+            ])
+        t_cs = Table(rows_cs, colWidths=[55 * mm, 40 * mm, 35 * mm])
+        t_cs.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor(LINE)),
+            ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+             [colors.white, colors.HexColor(LIGHT)]),
+        ]))
+        elements.append(t_cs); elements.append(Spacer(1, 6))
+
+    trends_data = memo.get("trends", {}) or {}
+    periods_mem = memo.get("periods", []) or []
+    if trends_data and len(periods_mem) >= 2:
+        elements.append(Paragraph(
+            f"Tendances ({periods_mem[0]} -> {periods_mem[-1]})"
+            if is_fr else
+            f"Trends ({periods_mem[0]} -> {periods_mem[-1]})", h2))
+        tr_label = {
+            "revenue": ("Chiffre d'affaires", "Revenue"),
+            "ebitda": ("EBITDA", "EBITDA"),
+            "ebit": ("EBIT", "EBIT"),
+            "net_income": ("Resultat net", "Net income"),
+            "total_assets": ("Total actif", "Total assets"),
+            "equity": ("Capitaux propres", "Equity"),
+        }
+        rows_tr = [[("Ligne" if is_fr else "Line"),
+                    f"{periods_mem[-2]}", f"{periods_mem[-1]}", "YoY", "CAGR"]]
+        for key, (lbl_fr, lbl_en) in tr_label.items():
+            t = trends_data.get(key) or {}
+            if t.get("last") is None:
+                continue
+            yoy = t.get("yoy")
+            cagr = t.get("cagr")
+            rows_tr.append([
+                lbl_fr if is_fr else lbl_en,
+                f"{t.get('prior', 0):,.0f}",
+                f"{t.get('last', 0):,.0f}",
+                f"{yoy*100:+.1f}%" if yoy is not None else "-",
+                f"{cagr*100:+.1f}%" if cagr is not None else "-",
+            ])
+        if len(rows_tr) > 1:
+            t_tr = Table(rows_tr,
+                         colWidths=[45 * mm, 30 * mm, 30 * mm, 22 * mm, 22 * mm])
+            t_tr.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(NAVY)),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor(LINE)),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+                 [colors.white, colors.HexColor(LIGHT)]),
+            ]))
+            elements.append(t_tr); elements.append(Spacer(1, 6))
+
+    proj = memo.get("projections", {}) or {}
+    if proj and periods_mem:
+        elements.append(Paragraph(
+            "Projection 3 ans (CAGR observe)"
+            if is_fr else
+            "3-year projection (observed CAGR)", h2))
+        base_year = periods_mem[-1]
+        proj_label = {
+            "revenue": ("Chiffre d'affaires", "Revenue"),
+            "ebitda": ("EBITDA", "EBITDA"),
+            "ebit": ("EBIT", "EBIT"),
+            "net_income": ("Resultat net", "Net income"),
+            "total_assets": ("Total actif", "Total assets"),
+            "operating_cash_flow": ("Cash op", "Operating CF"),
+        }
+        rows_p = [[("Ligne" if is_fr else "Line"),
+                   f"{base_year}+1", f"{base_year}+2", f"{base_year}+3"]]
+        for key, vals in proj.items():
+            if key not in proj_label or len(vals) < 1:
+                continue
+            lbl_fr, lbl_en = proj_label[key]
+            row = [lbl_fr if is_fr else lbl_en]
+            for i in range(3):
+                row.append(f"{vals[i]:,.0f}" if i < len(vals) else "-")
+            rows_p.append(row)
+        if len(rows_p) > 1:
+            t_p = Table(rows_p,
+                        colWidths=[55 * mm, 35 * mm, 35 * mm, 35 * mm])
+            t_p.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(RED)),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor(LINE)),
+                ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+                 [colors.white, colors.HexColor(LIGHT)]),
+            ]))
+            elements.append(t_p); elements.append(Spacer(1, 6))
+
+    obs = memo.get("observations", {}) or {}
+    if any(obs.values()):
+        elements.append(Paragraph(
+            "Observations CFA" if is_fr else "CFA-style observations", h2))
+        cat_label_fr = {
+            "profitability": "Rentabilite",
+            "liquidity": "Liquidite",
+            "solvency": "Solvabilite",
+            "efficiency": "Efficience operationnelle",
+            "cash": "Generation de cash",
+            "dupont": "DuPont",
+            "trend": "Tendance",
+        }
+        cat_label_en = {
+            "profitability": "Profitability",
+            "liquidity": "Liquidity",
+            "solvency": "Solvency",
+            "efficiency": "Operational efficiency",
+            "cash": "Cash generation",
+            "dupont": "DuPont",
+            "trend": "Trend",
+        }
+        labels = cat_label_fr if is_fr else cat_label_en
+        for cat in ["profitability", "cash", "liquidity", "solvency",
+                    "efficiency", "dupont", "trend"]:
+            lines = obs.get(cat) or []
+            if not lines:
+                continue
+            elements.append(Paragraph(f"<b>{labels[cat]}</b>", body))
+            for line in lines:
+                elements.append(Paragraph(f"- {line}", body))
+        elements.append(Spacer(1, 6))
 
     elements.append(Paragraph(L["next_steps"], h2))
     for step in memo["next_steps"]:
@@ -7065,9 +7645,17 @@ def run_app() -> None:
             key="fin_startup_name",
         )
         uploaded = st.file_uploader(
-            "Etats financiers (.xlsx / .csv)" if is_fr else "Financial statements (.xlsx / .csv)",
-            type=["xlsx", "xlsm", "xls", "csv"],
+            "Etats financiers (.xlsx, .xls, .csv, .pdf, .docx, .txt)" if is_fr
+            else "Financial statements (.xlsx, .xls, .csv, .pdf, .docx, .txt)",
+            type=["xlsx", "xlsm", "xls", "csv", "pdf", "docx", "doc", "txt"],
             key="fin_upload",
+            help=(
+                "Formats acceptes : Excel, CSV, PDF, Word. Libelles reconnus en "
+                "francais et anglais (Revenue/CA, EBITDA, Total assets/Actif total, etc.)."
+                if is_fr else
+                "Accepted formats: Excel, CSV, PDF, Word. Labels recognised in "
+                "French and English (Revenue/CA, EBITDA, Total assets/Actif total, etc.)."
+            ),
         )
         if uploaded is not None:
             parsed = parse_financial_statement(uploaded.getvalue(), uploaded.name)
@@ -7087,7 +7675,11 @@ def run_app() -> None:
                     st.dataframe(extracted_df, use_container_width=True, hide_index=True)
 
                 ratios = compute_financial_ratios(data)
-                memo = financial_memo(data, ratios)
+                memo = financial_memo(
+                    data, ratios,
+                    time_series=parsed.get("time_series", {}),
+                    periods=parsed.get("periods", []),
+                )
                 session["last_financial"] = {
                     "data": data, "ratios": ratios, "memo": memo,
                     "name": startup_name,
@@ -7130,6 +7722,148 @@ def run_app() -> None:
                 ])
                 st.markdown("**Tableau des ratios**" if is_fr else "**Ratio table**")
                 st.dataframe(ratio_df, use_container_width=True, hide_index=True)
+
+                # DuPont decomposition
+                dp = memo.get("dupont", {})
+                if dp.get("roe") is not None:
+                    st.markdown("**DuPont decomposition**")
+                    nm_d = dp.get("net_margin") or 0
+                    at_d = dp.get("asset_turnover") or 0
+                    em_d = dp.get("equity_multiplier") or 0
+                    cols_dp = st.columns(4)
+                    cols_dp[0].metric(
+                        "ROE", f"{(dp['roe'] or 0)*100:.1f}%",
+                    )
+                    cols_dp[1].metric(
+                        "Marge nette" if is_fr else "Net margin",
+                        f"{nm_d*100:.1f}%",
+                    )
+                    cols_dp[2].metric(
+                        "Rotation actifs" if is_fr else "Asset turnover",
+                        f"{at_d:.2f}x",
+                    )
+                    cols_dp[3].metric(
+                        "Levier financier" if is_fr else "Equity multiplier",
+                        f"{em_d:.2f}x",
+                    )
+
+                # Common-size income statement
+                cs_rows = memo.get("common_size", [])
+                if cs_rows:
+                    st.markdown(
+                        "**Compte de resultat en common-size (% du CA)**"
+                        if is_fr else
+                        "**Common-size income statement (% of revenue)**"
+                    )
+                    cs_df = pd.DataFrame([
+                        {
+                            "Ligne" if is_fr else "Line": r["label"],
+                            ("Valeur" if is_fr else "Value"): f"{r['value']:,.0f}",
+                            "% CA" if is_fr else "% Revenue": f"{r['pct_of_revenue']*100:+.1f}%",
+                        }
+                        for r in cs_rows
+                    ])
+                    st.dataframe(cs_df, use_container_width=True, hide_index=True)
+
+                # YoY trends
+                tr = memo.get("trends", {})
+                periods = memo.get("periods", [])
+                if tr and len(periods) >= 2:
+                    st.markdown(
+                        f"**Tendances ({periods[0]} -> {periods[-1]})**"
+                        if is_fr else
+                        f"**Trends ({periods[0]} -> {periods[-1]})**"
+                    )
+                    tr_label = {
+                        "revenue": ("Chiffre d'affaires", "Revenue"),
+                        "ebitda": ("EBITDA", "EBITDA"),
+                        "ebit": ("EBIT", "EBIT"),
+                        "net_income": ("Resultat net", "Net income"),
+                        "total_assets": ("Total actif", "Total assets"),
+                        "equity": ("Capitaux propres", "Equity"),
+                    }
+                    tr_rows: list[dict[str, str]] = []
+                    for key, (lbl_fr, lbl_en) in tr_label.items():
+                        t = tr.get(key) or {}
+                        if t.get("last") is None:
+                            continue
+                        yoy = t.get("yoy")
+                        cagr = t.get("cagr")
+                        arrow = "->" if (yoy is None or abs(yoy) < 0.01) else ("UP" if yoy > 0 else "DOWN")
+                        tr_rows.append({
+                            ("Ligne" if is_fr else "Line"): (lbl_fr if is_fr else lbl_en),
+                            (f"{periods[-2]}"): f"{t.get('prior', 0):,.0f}",
+                            (f"{periods[-1]}"): f"{t.get('last', 0):,.0f}",
+                            ("YoY"): (f"{yoy*100:+.1f}% {arrow}" if yoy is not None else "-"),
+                            ("CAGR"): (f"{cagr*100:+.1f}%" if cagr is not None else "-"),
+                        })
+                    if tr_rows:
+                        st.dataframe(pd.DataFrame(tr_rows),
+                                     use_container_width=True, hide_index=True)
+
+                # 3-year projections
+                proj = memo.get("projections", {})
+                if proj:
+                    st.markdown(
+                        "**Projection 3 ans (a partir du CAGR observe)**"
+                        if is_fr else
+                        "**3-year projection (from observed CAGR)**"
+                    )
+                    proj_label = {
+                        "revenue": ("Chiffre d'affaires", "Revenue"),
+                        "ebitda": ("EBITDA", "EBITDA"),
+                        "ebit": ("EBIT", "EBIT"),
+                        "net_income": ("Resultat net", "Net income"),
+                        "total_assets": ("Total actif", "Total assets"),
+                        "operating_cash_flow": ("Cash op", "Operating CF"),
+                    }
+                    base_year = (periods[-1] if periods else "P")
+                    proj_rows: list[dict[str, str]] = []
+                    for key, vals in proj.items():
+                        if key not in proj_label:
+                            continue
+                        lbl_fr, lbl_en = proj_label[key]
+                        row = {("Ligne" if is_fr else "Line"): (lbl_fr if is_fr else lbl_en)}
+                        for i, v in enumerate(vals, start=1):
+                            row[f"{base_year}+{i}"] = f"{v:,.0f}"
+                        proj_rows.append(row)
+                    if proj_rows:
+                        st.dataframe(pd.DataFrame(proj_rows),
+                                     use_container_width=True, hide_index=True)
+
+                # CFA-style observations
+                obs = memo.get("observations", {})
+                if any(obs.values()):
+                    st.markdown(
+                        "**Observations (norme CFA)**"
+                        if is_fr else
+                        "**CFA-style observations**"
+                    )
+                    cat_label_fr = {
+                        "profitability": "Rentabilite",
+                        "liquidity": "Liquidite",
+                        "solvency": "Solvabilite",
+                        "efficiency": "Efficience",
+                        "cash": "Generation de cash",
+                        "dupont": "DuPont",
+                        "trend": "Tendance",
+                    }
+                    cat_label_en = {
+                        "profitability": "Profitability",
+                        "liquidity": "Liquidity",
+                        "solvency": "Solvency",
+                        "efficiency": "Efficiency",
+                        "cash": "Cash generation",
+                        "dupont": "DuPont",
+                        "trend": "Trend",
+                    }
+                    labels = cat_label_fr if is_fr else cat_label_en
+                    for cat in ["profitability", "cash", "liquidity", "solvency",
+                                "efficiency", "dupont", "trend"]:
+                        if obs.get(cat):
+                            with st.expander(f"{labels[cat]}", expanded=False):
+                                for line in obs[cat]:
+                                    st.markdown(f"- {line}")
 
                 if memo["strengths"]:
                     st.markdown("**Points forts**" if is_fr else "**Strengths**")
