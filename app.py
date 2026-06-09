@@ -179,8 +179,26 @@ def _as_numeric(series: pd.Series, default: float = 0.0) -> pd.Series:
 
 
 def _money_to_float(value: Any) -> float:
-    if pd.isna(value):
+    # Defend against non-scalar inputs (Series / list / tuple). When a column
+    # appears twice in a PDF extraction, df.iloc[row][col] returns a Series,
+    # which used to crash later math with TypeError.
+    if isinstance(value, (list, tuple)):
+        for v in value:
+            r = _money_to_float(v)
+            if not pd.isna(r):
+                return r
         return float("nan")
+    if isinstance(value, pd.Series):
+        for v in value.tolist():
+            r = _money_to_float(v)
+            if not pd.isna(r):
+                return r
+        return float("nan")
+    try:
+        if pd.isna(value):
+            return float("nan")
+    except (TypeError, ValueError):
+        pass
     text = str(value)
     if not text.strip():
         return float("nan")
@@ -3187,7 +3205,8 @@ FIN_KEYWORDS: dict[str, list[str]] = {
 # --- Multi-format extraction helpers ---------------------------------------
 def _extract_dataframe_from_pdf(file_bytes: bytes) -> pd.DataFrame:
     """Extract a flat dataframe of (label, val_year_n, ...) from any PDF.
-    Tries native tables first, then falls back to text-line parsing."""
+    Tries native tables first, then falls back to text-line parsing.
+    Defensive against malformed rows / cells that pdfplumber may return."""
     try:
         import pdfplumber
     except Exception as exc:
@@ -3195,28 +3214,74 @@ def _extract_dataframe_from_pdf(file_bytes: bytes) -> pd.DataFrame:
 
     all_rows: list[list[Any]] = []
     max_cols = 1
+
+    def _push(parts: list[Any]) -> None:
+        # Coerce every cell to a clean string, drop completely-empty rows
+        cleaned = []
+        for c in parts:
+            if c is None:
+                cleaned.append("")
+            elif isinstance(c, (list, tuple)):
+                cleaned.append(" ".join(str(x) for x in c if x is not None).strip())
+            else:
+                cleaned.append(str(c).strip())
+        if any(cell for cell in cleaned):
+            nonlocal max_cols
+            all_rows.append(cleaned)
+            max_cols = max(max_cols, len(cleaned))
+
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
-            # First try structured tables
+            # 1) Structured tables
             try:
                 tables = page.extract_tables() or []
             except Exception:
                 tables = []
             for table in tables:
+                if not isinstance(table, (list, tuple)):
+                    continue
                 for row in table:
-                    if row and any(cell and str(cell).strip() for cell in row):
-                        cleaned = [str(c).strip() if c is not None else "" for c in row]
-                        all_rows.append(cleaned)
-                        max_cols = max(max_cols, len(cleaned))
-            # Fallback: text lines with a label + at least one numeric token
-            text = (page.extract_text() or "")
+                    if not isinstance(row, (list, tuple)):
+                        # pdfplumber sometimes hands back a scalar - skip cleanly
+                        continue
+                    try:
+                        _push(list(row))
+                    except Exception:
+                        continue
+            # 2) Text-line fallback - more aggressive splitting to cope with
+            # statements that lean on 2+ space columns OR a single-space
+            # 'label   value1  value2' layout.
+            try:
+                text = page.extract_text() or ""
+            except Exception:
+                text = ""
             for line in text.split("\n"):
-                if any(ch.isdigit() for ch in line) and any(ch.isalpha() for ch in line):
-                    # Split on 2+ whitespace to separate label from numeric columns
-                    parts = re.split(r"\s{2,}|\t+", line.strip())
-                    if len(parts) >= 2:
-                        all_rows.append(parts)
-                        max_cols = max(max_cols, len(parts))
+                line = line.replace("\xa0", " ").strip()
+                if not line:
+                    continue
+                # Need both letters and digits, otherwise it's a header or
+                # blank divider line.
+                if not (any(c.isdigit() for c in line) and any(c.isalpha() for c in line)):
+                    continue
+                # Try 2+ whitespace split first (most accurate for column data)
+                parts = re.split(r"\s{2,}|\t+", line)
+                # Fallback: peel trailing numeric tokens off the line
+                if len(parts) < 2:
+                    m = re.match(
+                        r"^(.*?)\s+([\(\-]?[\d][\d\s,.\)]*(?:\s+[\(\-]?[\d][\d\s,.\)]*)*)$",
+                        line,
+                    )
+                    if m:
+                        label_part = m.group(1).strip()
+                        tail = m.group(2)
+                        # split tail on whitespace
+                        nums = [t for t in re.split(r"\s+", tail) if t]
+                        parts = [label_part] + nums
+                if len(parts) >= 2:
+                    try:
+                        _push(parts)
+                    except Exception:
+                        continue
     if not all_rows:
         return pd.DataFrame()
     # Normalise row lengths
@@ -3306,6 +3371,10 @@ def _parse_financial_statement_impl(file_bytes: bytes, filename: str) -> dict[st
 
     # Drop fully empty rows/cols
     df = df.dropna(axis=0, how="all").dropna(axis=1, how="all").reset_index(drop=True)
+    # Deduplicate column labels - PDF tables sometimes hand back repeated
+    # column ids, which makes df[col] return a DataFrame instead of a
+    # Series and breaks downstream scalar math.
+    df.columns = pd.RangeIndex(start=0, stop=len(df.columns))
     if df.empty:
         return {"ok": False, "error": "Fichier vide ou contenu non extractible."}
 
