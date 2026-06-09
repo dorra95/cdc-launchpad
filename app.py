@@ -5910,17 +5910,18 @@ def _inject_css() -> None:
         .cdc-quote {{
             display: flex; align-items: center; gap: 0.85rem;
             opacity: 0; position: absolute; inset: 0.7rem 0 0 0;
-            animation: cdcQuoteCycle 30s infinite;
+            animation: cdcQuoteCycle 36s infinite;
         }}
         .cdc-quote:nth-child(1) {{ animation-delay: 0s; }}
         .cdc-quote:nth-child(2) {{ animation-delay: 6s; }}
         .cdc-quote:nth-child(3) {{ animation-delay: 12s; }}
         .cdc-quote:nth-child(4) {{ animation-delay: 18s; }}
         .cdc-quote:nth-child(5) {{ animation-delay: 24s; }}
+        .cdc-quote:nth-child(6) {{ animation-delay: 30s; }}
         @keyframes cdcQuoteCycle {{
-            0%, 18% {{ opacity: 0; transform: translateY(6px); }}
-            2%, 16% {{ opacity: 1; transform: translateY(0); }}
-            20%, 100% {{ opacity: 0; transform: translateY(-6px); }}
+            0%, 15% {{ opacity: 0; transform: translateY(6px); }}
+            2%, 13% {{ opacity: 1; transform: translateY(0); }}
+            17%, 100% {{ opacity: 0; transform: translateY(-6px); }}
         }}
         .cdc-quote {{ gap: 1.25rem !important; align-items: flex-start !important; }}
         .cdc-quote .avatar {{
@@ -5994,18 +5995,19 @@ def _inject_css() -> None:
             content:''; position:absolute; inset: 0;
             background: linear-gradient(90deg, {NAVY}, {RED});
             transform-origin: left center; transform: scaleX(0);
-            animation: cdcQuoteDotFill 30s infinite linear;
+            animation: cdcQuoteDotFill 36s infinite linear;
         }}
         .cdc-quote-dot:nth-child(1)::after {{ animation-delay: 0s; }}
         .cdc-quote-dot:nth-child(2)::after {{ animation-delay: 6s; }}
         .cdc-quote-dot:nth-child(3)::after {{ animation-delay: 12s; }}
         .cdc-quote-dot:nth-child(4)::after {{ animation-delay: 18s; }}
         .cdc-quote-dot:nth-child(5)::after {{ animation-delay: 24s; }}
+        .cdc-quote-dot:nth-child(6)::after {{ animation-delay: 30s; }}
         @keyframes cdcQuoteDotFill {{
-            0%, 20%, 100% {{ transform: scaleX(0); }}
-            0.5%, 19.5% {{ transform: scaleX(0); }}
+            0%, 17%, 100% {{ transform: scaleX(0); }}
+            0.5%, 16.5% {{ transform: scaleX(0); }}
             2% {{ transform: scaleX(0.05); }}
-            18% {{ transform: scaleX(1); }}
+            15% {{ transform: scaleX(1); }}
         }}
         .cdc-hero-row {{
             position: relative; z-index: 2;
@@ -6642,22 +6644,6 @@ HERO_QUOTES_EN: list[dict[str, str]] = [
         "photo_credit": "",
     },
     {
-        "text": "Make something people want.",
-        "who": "Paul Graham",
-        "role": "Co-founder, Y Combinator",
-        "initials": "PG",
-        "photo_url": "",
-        "photo_credit": "",
-    },
-    {
-        "text": "Done is better than perfect.",
-        "who": "Sheryl Sandberg",
-        "role": "Former COO, Meta",
-        "initials": "SS",
-        "photo_url": "",
-        "photo_credit": "",
-    },
-    {
         "text": "An entrepreneur is someone who jumps off a cliff and builds a plane on the way down.",
         "who": "Reid Hoffman",
         "role": "Co-founder, LinkedIn",
@@ -6666,10 +6652,34 @@ HERO_QUOTES_EN: list[dict[str, str]] = [
         "photo_credit": "",
     },
     {
-        "text": "Ideas are easy. Execution is everything.",
-        "who": "John Doerr",
-        "role": "Chairman, Kleiner Perkins",
-        "initials": "JD",
+        "text": "AI born in Tunis, deployed across Africa and beyond.",
+        "who": "InstaDeep",
+        "role": "Tunisian deep-tech — founders Karim Beguir, Zohra Slim",
+        "initials": "ID",
+        "photo_url": "",
+        "photo_credit": "",
+    },
+    {
+        "text": "Make finance ops invisible to founders.",
+        "who": "Expensya",
+        "role": "Tunisian SaaS — founders Karim Jouini, Jihed Othmani",
+        "initials": "EX",
+        "photo_url": "",
+        "photo_credit": "",
+    },
+    {
+        "text": "Tech literacy is the new literacy.",
+        "who": "GoMyCode",
+        "role": "Tunisian edtech — founder Yahya Bouhlel",
+        "initials": "GM",
+        "photo_url": "",
+        "photo_credit": "",
+    },
+    {
+        "text": "Pre-loved fashion. Future-proof marketplace.",
+        "who": "Dabchy",
+        "role": "Tunisian marketplace — founders Ameni Mansouri, Oussama Mahjoub, Yassine Bouchoucha",
+        "initials": "DB",
         "photo_url": "",
         "photo_credit": "",
     },
@@ -6684,23 +6694,7 @@ HERO_QUOTES_FR: list[dict[str, str]] = [
         "photo_credit": "",
     },
     {
-        "text": "Créez quelque chose que les gens veulent.",
-        "who": "Paul Graham",
-        "role": "Co-fondateur, Y Combinator",
-        "initials": "PG",
-        "photo_url": "",
-        "photo_credit": "",
-    },
-    {
-        "text": "Fait vaut mieux que parfait.",
-        "who": "Sheryl Sandberg",
-        "role": "Ancienne COO, Meta",
-        "initials": "SS",
-        "photo_url": "",
-        "photo_credit": "",
-    },
-    {
-        "text": "Un entrepreneur saute d'une falaise et construit un avion en chute libre.",
+        "text": "Un entrepreneur saute d’une falaise et construit un avion en chute libre.",
         "who": "Reid Hoffman",
         "role": "Co-fondateur, LinkedIn",
         "initials": "RH",
@@ -6708,10 +6702,34 @@ HERO_QUOTES_FR: list[dict[str, str]] = [
         "photo_credit": "",
     },
     {
-        "text": "Les idées sont faciles. L'exécution fait tout.",
-        "who": "John Doerr",
-        "role": "Président, Kleiner Perkins",
-        "initials": "JD",
+        "text": "L’IA née à Tunis, déployée à travers l’Afrique.",
+        "who": "InstaDeep",
+        "role": "Deep-tech tunisien — fondé par Karim Beguir, Zohra Slim",
+        "initials": "ID",
+        "photo_url": "",
+        "photo_credit": "",
+    },
+    {
+        "text": "Rendre la gestion financière invisible aux fondateurs.",
+        "who": "Expensya",
+        "role": "SaaS tunisien — fondé par Karim Jouini, Jihed Othmani",
+        "initials": "EX",
+        "photo_url": "",
+        "photo_credit": "",
+    },
+    {
+        "text": "La culture tech est la nouvelle alphabétisation.",
+        "who": "GoMyCode",
+        "role": "Edtech tunisien — fondé par Yahya Bouhlel",
+        "initials": "GM",
+        "photo_url": "",
+        "photo_credit": "",
+    },
+    {
+        "text": "Mode de seconde main, marché du futur.",
+        "who": "Dabchy",
+        "role": "Marketplace tunisien — fondé par Ameni Mansouri, Oussama Mahjoub, Yassine Bouchoucha",
+        "initials": "DB",
         "photo_url": "",
         "photo_credit": "",
     },
@@ -6787,7 +6805,8 @@ def _header(lang: str, status_pill: str = "") -> None:
     )
     quotes = HERO_QUOTES_FR if lang == "FR" else HERO_QUOTES_EN
     avatar_palette = [(NAVY, "#1B2150"), (RED, "#8C0A0F"),
-                      (NAVY, RED), (RED, NAVY), (NAVY, "#1B2150")]
+                      (NAVY, RED), (RED, NAVY),
+                      (NAVY, "#1B2150"), (RED, "#8C0A0F")]
 
     def _avatar(q: dict[str, str], c1: str, c2: str) -> str:
         photo = q.get("photo_url") or ""
@@ -6836,6 +6855,7 @@ def _header(lang: str, status_pill: str = "") -> None:
                     <div class="badges">{badge_html}</div>
                     <div class="cdc-quote-wrap">{quote_html}
                         <div class="cdc-quote-dots">
+                            <div class="cdc-quote-dot"></div>
                             <div class="cdc-quote-dot"></div>
                             <div class="cdc-quote-dot"></div>
                             <div class="cdc-quote-dot"></div>
