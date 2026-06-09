@@ -1160,7 +1160,7 @@ ECOSYSTEM_ARTICLES: list[dict[str, str]] = [
 
 IMPACT_KPI_DEFINITIONS: list[dict[str, str]] = [
     {"key": "total", "label": "Startups suivies", "icon": "RC", "tone": "navy"},
-    {"key": "funded", "label": "Financees au moins une fois", "icon": "$", "tone": "red"},
+    {"key": "funded", "label": "Financées au moins une fois", "icon": "$", "tone": "red"},
     {"key": "labelled", "label": "Labellisees Startup Act", "icon": "L", "tone": "gold"},
     {"key": "sectors", "label": "Secteurs couverts", "icon": "S", "tone": "teal"},
     {"key": "women", "label": "Equipes feminines", "icon": "F", "tone": "rose"},
@@ -4352,7 +4352,7 @@ def portfolio_pdf(
                   f"</font>", body),
         Paragraph(f"<b>{funded_total:,}</b><br/>"
                   f"<font size=8 color='#6B7280'>"
-                  f"{'Financees au moins une fois' if is_fr else 'Funded at least once'}"
+                  f"{'Financées au moins une fois' if is_fr else 'Funded at least once'}"
                   f"</font>", body),
         Paragraph(f"<b>{df.get('funded', pd.Series([0])).mean() * 100:.1f}%</b><br/>"
                   f"<font size=8 color='#6B7280'>"
@@ -6084,14 +6084,23 @@ def _inject_css() -> None:
         }}
         .alaune:hover {{ transform: translateY(-3px); box-shadow: 0 22px 44px -22px rgba(39,46,95,0.55); }}
         .alaune .cover {{
-            height: 96px; position: relative;
+            height: 96px; position: relative; overflow: hidden;
             background: linear-gradient(135deg, var(--c1), var(--c2));
             display:flex; align-items:center; justify-content:space-between; padding: 0.65rem 0.9rem;
+            isolation: isolate;
+        }}
+        .alaune-cover-photo {{
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; z-index: 0; pointer-events: none;
+            opacity: 0.85;
         }}
         .alaune .cover::after {{
-            content:''; position:absolute; inset:0;
-            background: radial-gradient(220px 110px at 90% 20%, rgba(255,255,255,0.30), transparent 60%);
+            content:''; position:absolute; inset:0; z-index: 1; pointer-events: none;
+            background:
+              radial-gradient(220px 110px at 90% 20%, rgba(255,255,255,0.18), transparent 60%),
+              linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.35) 100%);
         }}
+        .alaune .cover .tag, .alaune .cover .src {{ position: relative; z-index: 2; text-shadow: 0 1px 2px rgba(0,0,0,0.45); }}
         .alaune .cover .tag {{
             background: rgba(255,255,255,0.18); color:white;
             padding: 0.2rem 0.55rem; border-radius: 999px;
@@ -6625,76 +6634,86 @@ def _alert(level: str, title: str, details: list[str]) -> None:
 
 HERO_QUOTES_EN: list[dict[str, str]] = [
     {
-        "text": "Speed is the moat. Compounding execution beats clever strategy on a slide deck.",
-        "who": "The founder's mindset",
-        "role": "CDC LaunchPAD voice",
-        "initials": "FM",
+        "text": "Stay hungry, stay foolish.",
+        "who": "Steve Jobs",
+        "role": "Co-founder, Apple",
+        "initials": "SJ",
         "photo_url": "",
+        "photo_credit": "",
     },
     {
-        "text": "Capital is patient when traction is loud. Make the numbers talk before you do.",
-        "who": "The investor's lens",
-        "role": "CDC LaunchPAD voice",
-        "initials": "IL",
+        "text": "Make something people want.",
+        "who": "Paul Graham",
+        "role": "Co-founder, Y Combinator",
+        "initials": "PG",
         "photo_url": "",
+        "photo_credit": "",
     },
     {
-        "text": "Tunisian founders don't ask for permission. They ship, measure, iterate.",
-        "who": "The builder's law",
-        "role": "CDC LaunchPAD voice",
-        "initials": "BL",
+        "text": "Done is better than perfect.",
+        "who": "Sheryl Sandberg",
+        "role": "Former COO, Meta",
+        "initials": "SS",
         "photo_url": "",
+        "photo_credit": "",
     },
     {
-        "text": "Distribution is the new innovation. Pick a wedge and own it before anyone notices.",
-        "who": "The operator's playbook",
-        "role": "CDC LaunchPAD voice",
-        "initials": "OP",
+        "text": "An entrepreneur is someone who jumps off a cliff and builds a plane on the way down.",
+        "who": "Reid Hoffman",
+        "role": "Co-founder, LinkedIn",
+        "initials": "RH",
         "photo_url": "",
+        "photo_credit": "",
     },
     {
-        "text": "Funding is a milestone, not a finish line. Welcome to the control room.",
-        "who": "CDC LaunchPAD",
-        "role": "Platform manifesto",
-        "initials": "CL",
+        "text": "Ideas are easy. Execution is everything.",
+        "who": "John Doerr",
+        "role": "Chairman, Kleiner Perkins",
+        "initials": "JD",
         "photo_url": "",
+        "photo_credit": "",
     },
 ]
 HERO_QUOTES_FR: list[dict[str, str]] = [
     {
-        "text": "La vitesse est votre rempart. L'execution composee bat la strategie sur slide.",
-        "who": "Mental de fondateur",
-        "role": "Voix CDC LaunchPAD",
-        "initials": "MF",
+        "text": "Restez affamés, restez fous.",
+        "who": "Steve Jobs",
+        "role": "Co-fondateur, Apple",
+        "initials": "SJ",
         "photo_url": "",
+        "photo_credit": "",
     },
     {
-        "text": "Le capital est patient quand la traction est bruyante. Faites parler les chiffres.",
-        "who": "L'oeil de l'investisseur",
-        "role": "Voix CDC LaunchPAD",
-        "initials": "OI",
+        "text": "Créez quelque chose que les gens veulent.",
+        "who": "Paul Graham",
+        "role": "Co-fondateur, Y Combinator",
+        "initials": "PG",
         "photo_url": "",
+        "photo_credit": "",
     },
     {
-        "text": "Les fondateurs tunisiens ne demandent pas la permission. Ils livrent, mesurent, iterent.",
-        "who": "Loi du builder",
-        "role": "Voix CDC LaunchPAD",
-        "initials": "LB",
+        "text": "Fait vaut mieux que parfait.",
+        "who": "Sheryl Sandberg",
+        "role": "Ancienne COO, Meta",
+        "initials": "SS",
         "photo_url": "",
+        "photo_credit": "",
     },
     {
-        "text": "La distribution est la nouvelle innovation. Choisissez un creneau et dominez-le.",
-        "who": "Manuel de l'operateur",
-        "role": "Voix CDC LaunchPAD",
-        "initials": "MO",
+        "text": "Un entrepreneur saute d'une falaise et construit un avion en chute libre.",
+        "who": "Reid Hoffman",
+        "role": "Co-fondateur, LinkedIn",
+        "initials": "RH",
         "photo_url": "",
+        "photo_credit": "",
     },
     {
-        "text": "Le financement est une etape, pas une ligne d'arrivee. Bienvenue dans la salle de controle.",
-        "who": "CDC LaunchPAD",
-        "role": "Manifeste plateforme",
-        "initials": "CL",
+        "text": "Les idées sont faciles. L'exécution fait tout.",
+        "who": "John Doerr",
+        "role": "Président, Kleiner Perkins",
+        "initials": "JD",
         "photo_url": "",
+        "photo_credit": "",
     },
 ]
 
@@ -7235,31 +7254,46 @@ def run_app() -> None:
             unsafe_allow_html=True,
         )
 
+        is_fr_al = (lang == "FR")
+        open_cta = "Ouvrir la source" if is_fr_al else "Open the source"
         article_cards = []
         for art in ECOSYSTEM_ARTICLES:
             c1, c2 = _TONE_GRADIENTS.get(art["color"], (NAVY, "#1B2150"))
+            photo_seed = (art["title"] + art["source"]).replace(" ", "-")[:48]
+            photo_url = f"https://picsum.photos/seed/{photo_seed}/640/220"
             article_cards.append(
                 f"<div class='alaune'>"
                 f"  <div class='cover' style='--c1:{c1}; --c2:{c2}'>"
+                f"    <img class='alaune-cover-photo' src='{photo_url}' alt='' loading='lazy'/>"
                 f"    <span class='tag'>{art['tag']}</span>"
                 f"    <span class='src'>{art['source']}</span>"
                 f"  </div>"
                 f"  <div class='body'>"
                 f"    <h4>{art['title']}</h4>"
                 f"    <p>{art['summary']}</p>"
-                f"    <a href='{art['url']}' target='_blank' rel='noopener'>Ouvrir la source &nbsp;&rsaquo;</a>"
+                f"    <a href='{art['url']}' target='_blank' rel='noopener'>{open_cta} &nbsp;&rsaquo;</a>"
                 f"  </div>"
                 f"</div>"
             )
+        section_pill = "Veille" if is_fr_al else "Watch"
+        section_title = (
+            "Initiatives, fonds et programmes à suivre"
+            if is_fr_al
+            else "Initiatives, funds and programmes to watch"
+        )
         st.markdown(
-            "<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#0FB5A6,#067067)'>Veille</span>"
-            "<h3>Initiatives, fonds et programmes a suivre</h3></div>"
+            f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,#0FB5A6,#067067)'>{section_pill}</span>"
+            f"<h3>{section_title}</h3></div>"
             f"<div class='alaune-grid'>{''.join(article_cards)}</div>",
             unsafe_allow_html=True,
         )
 
         spotlight = beneficiary_spotlight(df, k=4)
         if spotlight:
+            is_fr_sp = (lang == "FR")
+            l_founded = "Fondée" if is_fr_sp else "Founded"
+            l_status = "Statut" if is_fr_sp else "Status"
+            l_funded = "Financée" if is_fr_sp else "Funded"
             cards_html = []
             for b in spotlight:
                 c1, c2 = _TONE_GRADIENTS.get(b["color"], (NAVY, "#1B2150"))
@@ -7274,8 +7308,8 @@ def run_app() -> None:
                     f"  <h4>{b['name'][:38]}</h4>"
                     f"  <div class='meta'>{b['region']}</div>"
                     f"  <div class='stats'>"
-                    f"    <div class='stat'><div class='l'>Fondee</div><div class='v'>{year}</div></div>"
-                    f"    <div class='stat'><div class='l'>Statut</div><div class='v'>Financee</div></div>"
+                    f"    <div class='stat'><div class='l'>{l_founded}</div><div class='v'>{year}</div></div>"
+                    f"    <div class='stat'><div class='l'>{l_status}</div><div class='v'>{l_funded}</div></div>"
                     f"  </div>"
                     f"</div>"
                 )
@@ -7340,7 +7374,7 @@ def run_app() -> None:
             n_regions = int(regions_v.nunique()) if not regions_v.empty else 0
 
             kpi_labels = (
-                ("Startups", "Financees", "Cohorte moyenne", "Regions couvertes")
+                ("Startups", "Financées", "Cohorte moyenne", "Régions couvertes")
                 if is_fr_eco
                 else ("Startups", "Funded", "Avg cohort", "Regions covered")
             )
@@ -7383,10 +7417,10 @@ def run_app() -> None:
                 is_funded = int(r.get("funded", 0)) == 1 if "funded" in top5.columns else False
                 status_html = (
                     f"<span class='dd-chip-funded'>"
-                    f"{('Financee' if is_fr_eco else 'Funded')}</span>"
+                    f"{('Financée' if is_fr_eco else 'Funded')}</span>"
                     if is_funded
                     else ("<span class='small-muted'>"
-                          + ("Non finance" if is_fr_eco else "Not funded")
+                          + ("Non financée" if is_fr_eco else "Not funded")
                           + "</span>")
                 )
                 rows_html.append(
@@ -7512,7 +7546,7 @@ def run_app() -> None:
             placeholder="Toutes regions" if is_fr_p else "All regions",
         )
         only_funded = f3.toggle(
-            "Financees uniquement" if is_fr_p else "Funded only",
+            "Financées uniquement" if is_fr_p else "Funded only",
             value=False,
         )
 
@@ -7625,7 +7659,10 @@ def run_app() -> None:
             if region:
                 chips.append(f"<span class='chip'>{region[:18]}</span>")
             if "funded" in filtered.columns and int(r.get("funded", 0)) == 1:
-                chips.append("<span class='chip funded'>Financee</span>")
+                chips.append(
+                    "<span class='chip funded'>"
+                    f"{'Financée' if is_fr_p else 'Funded'}</span>"
+                )
             if "profile" in filtered.columns and r.get("profile"):
                 chips.append(f"<span class='chip'>{str(r.get('profile'))[:20]}</span>")
             cards_html.append(
