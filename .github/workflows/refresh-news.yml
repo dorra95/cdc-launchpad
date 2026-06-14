@@ -1,0 +1,45 @@
+name: Refresh ecosystem news
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"  # every 6 hours
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-news
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install --quiet feedparser requests
+
+      - name: Fetch latest articles
+        env:
+          CDC_NEWS_LOOKBACK_DAYS: "90"
+          CDC_NEWS_MAX_ITEMS: "12"
+        run: python scripts/refresh_news.py
+
+      - name: Commit if news changed
+        run: |
+          git config user.name "cdc-launchpad-bot"
+          git config user.email "bot@cdc-launchpad.local"
+          if [[ -n "$(git status --porcelain data/news_cache.json)" ]]; then
+            git add data/news_cache.json
+            git commit -m "chore(news): refresh ecosystem feed [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi

@@ -933,6 +933,46 @@ def _shared_access_code() -> str:
     return _smtp_setting("CDC_ACCESS_CODE").strip()
 
 
+def _rotated_code_record() -> dict[str, Any]:
+    """Read data/access_code.json (written by scripts/rotate_code.py).
+    Returns {'hash': '', 'expires_at': ''} on any read error."""
+    path = os.path.join(SCRIPT_DIR, "data", "access_code.json")
+    try:
+        import json
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if not isinstance(payload, dict):
+            return {}
+        return {
+            "hash": str(payload.get("hash", "") or ""),
+            "rotated_at": str(payload.get("rotated_at", "") or ""),
+            "expires_at": str(payload.get("expires_at", "") or ""),
+        }
+    except Exception:
+        return {}
+
+
+def _verify_rotated_code(code: str) -> bool:
+    """Check if `code` matches the rotated SHA-256 hash and hasn't expired."""
+    if not code:
+        return False
+    rec = _rotated_code_record()
+    stored_hash = rec.get("hash", "")
+    if not stored_hash:
+        return False
+    # Expiry guard (best-effort, never fails closed if the timestamp is malformed)
+    exp_raw = rec.get("expires_at", "")
+    if exp_raw:
+        try:
+            exp = dt.datetime.fromisoformat(exp_raw.rstrip("Z"))
+            if dt.datetime.utcnow() > exp:
+                return False
+        except Exception:
+            pass
+    candidate = hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
+    return secrets.compare_digest(candidate, stored_hash)
+
+
 def _admin_emails() -> set[str]:
     """Optional comma-separated list of admin emails (CDC_ADMIN_EMAILS).
     When an admin requests a code and SMTP fails or is missing, the code is
@@ -1057,7 +1097,12 @@ def issue_access_code(email: str) -> dict[str, Any]:
 def verify_access_code(email: str, code: str, issued: dict[str, Any]) -> bool:
     if not code:
         return False
-    # Path 1: shared platform code (CDC_ACCESS_CODE secret).
+    # Path 1a: weekly-rotated shared code (data/access_code.json, written by
+    # the rotate-access-code workflow). Takes precedence so a freshly rotated
+    # code works the moment the workflow commits.
+    if _verify_rotated_code(code):
+        return True
+    # Path 1b: legacy shared platform code via CDC_ACCESS_CODE secret.
     shared = _shared_access_code()
     if shared and secrets.compare_digest(code.strip(), shared):
         return True
@@ -5774,6 +5819,37 @@ def _fmt_date(date_iso: str, lang: str) -> str:
     return d.strftime("%d %b %Y")
 
 
+def _load_cached_model_metrics() -> dict[str, Any]:
+    """Read data/model_metrics.json (written by scripts/retrain_model.py).
+    Returns {} when the file is absent or trained_at is empty."""
+    path = os.path.join(SCRIPT_DIR, "data", "model_metrics.json")
+    try:
+        import json
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict) and payload.get("trained_at"):
+            return payload
+    except Exception:
+        pass
+    return {}
+
+
+def _load_news_cache() -> tuple[list[dict[str, Any]], str]:
+    """Read data/news_cache.json (written by scripts/refresh_news.py).
+    Returns (items, updated_at_iso) - empty list when the cache is missing."""
+    path = os.path.join(SCRIPT_DIR, "data", "news_cache.json")
+    try:
+        import json
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        items = payload.get("items") or []
+        if isinstance(items, list) and items:
+            return items, str(payload.get("updated_at", "") or "")
+    except Exception:
+        pass
+    return [], ""
+
+
 def _render_newsroom_tab(lang: str) -> None:
     import streamlit as st
 
@@ -5784,20 +5860,30 @@ def _render_newsroom_tab(lang: str) -> None:
         if is_fr
         else "Strong and weak signals from the Tunisian and MENA ecosystem"
     )
+    live_items, updated_at = _load_news_cache()
+    feed = live_items if live_items else NEWSROOM_ARTICLES
     st.markdown(
         f"<div class='section-h'><span class='pill' style='background:linear-gradient(135deg,{NAVY},{RED})'>{pill}</span>"
         f"<h3>{title}</h3></div>",
         unsafe_allow_html=True,
     )
-    st.caption(
-        "Chaque carte ouvre la source. Branchez un flux RSS via la configuration "
-        "pour un flux temps reel."
-        if is_fr
-        else "Each card opens the source. Plug an RSS feed via platform config for a live stream."
-    )
+    if live_items:
+        st.caption(
+            (f"Flux live : {len(live_items)} articles, actualisé {updated_at[:10]} (workflow refresh-news)."
+             if is_fr else
+             f"Live feed: {len(live_items)} articles, refreshed {updated_at[:10]} by the refresh-news workflow.")
+        )
+    else:
+        st.caption(
+            "Cache vide pour l'instant - le workflow refresh-news prendra le relais. "
+            "Articles de référence affichés ci-dessous."
+            if is_fr
+            else "Cache empty for now - the refresh-news workflow will take over. "
+                 "Reference articles shown below."
+        )
 
     cards_html = []
-    for art in NEWSROOM_ARTICLES:
+    for art in feed:
         c1, c2 = _TONE_GRADIENTS.get(art["color"], (NAVY, "#1B2150"))
         title_text = art["title_fr"] if is_fr else art["title_en"]
         summary = art["summary_fr"] if is_fr else art["summary_en"]
@@ -8671,6 +8757,18 @@ def run_app() -> None:
             f"<h3>{'Ajouter une startup et reentrainer le moteur' if is_fr else 'Add a startup, retrain the engine'}</h3></div>",
             unsafe_allow_html=True,
         )
+        cached_metrics = _load_cached_model_metrics()
+        if cached_metrics.get("trained_at"):
+            badge = (f"Modèle ré-entraîné le {cached_metrics['trained_at'][:10]} "
+                     f"(workflow retrain-model) - ROC-AUC {cached_metrics.get('roc_auc')}, "
+                     f"F1 {cached_metrics.get('f1')}, échantillon {cached_metrics.get('n_rows'):,} lignes, "
+                     f"boucle {cached_metrics.get('store_rows'):,} labellisations."
+                     if is_fr else
+                     f"Model retrained on {cached_metrics['trained_at'][:10]} "
+                     f"(retrain-model workflow) - ROC-AUC {cached_metrics.get('roc_auc')}, "
+                     f"F1 {cached_metrics.get('f1')}, sample {cached_metrics.get('n_rows'):,} rows, "
+                     f"loop {cached_metrics.get('store_rows'):,} labels.")
+            st.info(badge)
         st.caption(
             "Chaque cas que vous labellisez ici alimente la boucle d'apprentissage : "
             "le modele est reentraine immediatement et toutes les recommandations futures en profitent."

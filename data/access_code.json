@@ -1,0 +1,7 @@
+{
+  "hash": "",
+  "rotated_at": "",
+  "expires_at": "",
+  "algorithm": "sha256",
+  "_note": "This file is written by scripts/rotate_code.py via the weekly rotate-access-code workflow. Until the first rotation runs, the platform falls back to the CDC_ACCESS_CODE Streamlit Cloud secret (Pass 14). The hash is one-way - publishing it in the repo is safe."
+}

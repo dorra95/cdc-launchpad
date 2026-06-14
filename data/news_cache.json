@@ -1,0 +1,7 @@
+{
+  "items": [],
+  "updated_at": "",
+  "lookback_days": 90,
+  "count": 0,
+  "_note": "Written by scripts/refresh_news.py via the every-6h refresh-news workflow. While items is empty the Veille tab falls back to the baked-in NEWSROOM_ARTICLES constant in app.py."
+}

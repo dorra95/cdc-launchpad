@@ -1,0 +1,11 @@
+{
+  "trained_at": "",
+  "engine": "",
+  "roc_auc": null,
+  "f1": null,
+  "accuracy": null,
+  "n_rows": 0,
+  "n_funded": 0,
+  "store_rows": 0,
+  "_note": "Written by scripts/retrain_model.py via the nightly retrain-model workflow. While trained_at is empty the Capitalize tab shows the live (in-memory) metrics from train_selection() instead."
+}

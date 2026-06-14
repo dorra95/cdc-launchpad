@@ -1,0 +1,45 @@
+name: Sync startup dataset
+
+on:
+  schedule:
+    - cron: "0 1 * * *"    # daily at 01:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-dataset
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install --quiet pandas openpyxl requests
+
+      - name: Pull from source
+        env:
+          CDC_DATASET_SOURCE_URL: ${{ secrets.CDC_DATASET_SOURCE_URL }}
+          CDC_DATASET_SOURCE_FORMAT: ${{ secrets.CDC_DATASET_SOURCE_FORMAT }}
+        run: python scripts/sync_dataset.py
+
+      - name: Commit if dataset changed
+        run: |
+          git config user.name "cdc-launchpad-bot"
+          git config user.email "bot@cdc-launchpad.local"
+          if [[ -n "$(git status --porcelain Startups_Tunisia_Master_v4.xlsx)" ]]; then
+            git add Startups_Tunisia_Master_v4.xlsx
+            git commit -m "chore(data): sync from source [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi

@@ -1,0 +1,47 @@
+name: Rotate access code
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"   # Sundays at 02:00 UTC
+  workflow_dispatch: {}    # also lets you trigger it manually from the Actions tab
+
+permissions:
+  contents: write          # needed to commit the new hash back to the repo
+
+concurrency:
+  group: rotate-access-code
+  cancel-in-progress: false
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Rotate code and email admin
+        env:
+          CDC_SMTP_HOST: ${{ secrets.CDC_SMTP_HOST }}
+          CDC_SMTP_USER: ${{ secrets.CDC_SMTP_USER }}
+          CDC_SMTP_PASS: ${{ secrets.CDC_SMTP_PASS }}
+          CDC_SMTP_FROM: ${{ secrets.CDC_SMTP_FROM }}
+          CDC_SMTP_PORT: ${{ secrets.CDC_SMTP_PORT }}
+          CDC_ADMIN_EMAILS: ${{ secrets.CDC_ADMIN_EMAILS }}
+          CDC_CODE_TTL_DAYS: "7"
+        run: python scripts/rotate_code.py
+
+      - name: Commit if hash changed
+        run: |
+          git config user.name "cdc-launchpad-bot"
+          git config user.email "bot@cdc-launchpad.local"
+          if [[ -n "$(git status --porcelain data/access_code.json)" ]]; then
+            git add data/access_code.json
+            git commit -m "chore(access): rotate code [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi

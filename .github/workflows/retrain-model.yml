@@ -1,0 +1,42 @@
+name: Retrain funding model
+
+on:
+  schedule:
+    - cron: "30 2 * * *"   # nightly at 02:30 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: retrain-model
+  cancel-in-progress: true
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install --quiet pandas numpy scikit-learn openpyxl
+
+      - name: Retrain
+        run: python scripts/retrain_model.py
+
+      - name: Commit if metrics changed
+        run: |
+          git config user.name "cdc-launchpad-bot"
+          git config user.email "bot@cdc-launchpad.local"
+          if [[ -n "$(git status --porcelain data/model_metrics.json)" ]]; then
+            git add data/model_metrics.json
+            git commit -m "chore(model): nightly retrain [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi
